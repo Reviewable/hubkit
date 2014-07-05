@@ -129,7 +129,7 @@ if (typeof require !== 'undefined') {
       req.auth(options.username, options.password);
     }
     if (options.userAgent) req.set('User-Agent', options.userAgent);
-    if (options.media) req.accept('application/vnd.github.' + media);
+    if (options.media) req.accept('application/vnd.github.' + options.media);
     req.query({per_page: options.perPage});
   }
 
