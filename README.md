@@ -5,6 +5,7 @@ A simple GitHub API library for JavaScript that works in both NodeJS and the bro
 * Takes a request-level approach that naturally covers the entire GitHub v3 API.
 * All requests return promises.  (You need to include a promise polyfill or run node with --harmony.)
 * Responses are (optionally) cached, and requests are conditional to save on bandwidth and request quota.
+Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](https://github.com/Caged/octo), and [octokit](https://github.com/philschatz/octokit.js).
 
 To enable caching, make sure that [LRUCache](https://github.com/isaacs/node-lru-cache) is loaded.
 Either `npm install lru-cache --save` (for NodeJS), or load `lru-cache.js` into the browser.  Or you
