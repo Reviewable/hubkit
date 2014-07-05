@@ -19,7 +19,8 @@ if (typeof require !== 'undefined') {
     defaults(options, {
       method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, cache: cache
     });
-    if (require && !options.userAgent) options.userAgent = 'Hubkit';
+    // NodeJS doesn't set a userAgent by default but GitHub requires one.
+    if (typeof require !== 'undefined' && !options.userAgent) options.userAgent = 'Hubkit';
     this.defaultOptions = options;
   };
 
