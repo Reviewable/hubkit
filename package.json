@@ -1,0 +1,27 @@
+{
+  "name": "hubkit",
+  "version": "0.0.2",
+  "description": "GitHub API library for JavaScript, promise-based, for both NodeJS and the browser",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/pkaminski/hubkit.git"
+  },
+  "keywords": [
+    "github",
+    "api",
+    "promise"
+  ],
+  "author": "Piotr Kaminski <piotr@ideanest.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pkaminski/hubkit/issues"
+  },
+  "homepage": "https://github.com/pkaminski/hubkit",
+  "dependencies": {
+    "superagent": "^0.18.0"
+  }
+}
