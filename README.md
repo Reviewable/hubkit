@@ -63,7 +63,8 @@ inserted into the cache will be of the form `{value: {...}, eTag: 'abc123', stat
 You can use the (approximate) `size` field to help your cache determine when to evict items.  The
 default cache is set to hold ~500K.
 * `method`: The HTTP method to use for the request.
-* `accept`: A GitHub-specific media type for the response content.  Valid values are:
+* `media`: A GitHub-specific [media type](https://developer.github.com/v3/media/) for the response
+content.  Valid values are:
   * for comment bodies: `raw+json` (default), `text+json`, `html+json`, `full+json`
   * for blobs: `json` (default), `raw`
   * for commits, etc.: `diff`, `patch`
