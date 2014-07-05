@@ -50,7 +50,8 @@ response will return `true` or `false` instead.  Note that for paged responses, 
 concatenated together into the return value by default (see below).
 
 After every request, you can access `Hubkit.rateLimit` and `Hubkit.rateLimitRemaining` for the
-latest information on your GitHub quotas.
+latest information on your GitHub quotas, and `Hubkit.oAuthScopes` to see what scopes your
+authorization entitles you to.
 
 Valid options to pass (to the constructor or to each request) include:
 * `token`: String token to use for authentication; takes precedence over username and password.

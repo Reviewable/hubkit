@@ -45,6 +45,8 @@ if (typeof require !== 'undefined') {
       function onComplete(error, res) {
         Hubkit.rateLimit = res && res.header['x-ratelimit-limit'];
         Hubkit.rateLimitRemaining = res && res.header['x-ratelimit-remaining'];
+        Hubkit.oAuthScopes = res && res.header['x-oauth-scopes'] &&
+          res.header['x-oauth-scopes'].split(/\s*,\s*/);
         if (error) {
           reject(error);
         } else if (res.status === 304) {
