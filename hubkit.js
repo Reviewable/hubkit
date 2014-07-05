@@ -1,10 +1,17 @@
+if (require && typeof superagent === 'undefined') superagent = require('superagent');
+if (require && typeof LRUCache === 'undefined') {
+  try {
+    LRUCache = require('lru-cache');
+  } catch(e) {
+    // ignore, not actually required
+  }
+}
+
 (function() {
   'use strict';
 
-  if (!superagent) superagent = require('superagent');
-  if (require && !LRUCache) LRUCache = require('lru-cache');
-  var cache = LRUCache ?
-    new LRUCache({max: 500000, length: function(item) {return item.size;}}) : null;
+  var cache = typeof LRUCache === 'undefined' ? null :
+    new LRUCache({max: 500000, length: function(item) {return item.size;}});
 
   var Hubkit = function(options) {
     defaults(options, {
@@ -14,8 +21,15 @@
     this.defaultOptions = options;
   };
 
+  if (typeof module === 'undefined') {
+    window.Hubkit = Hubkit;
+  } else {
+    module.exports = Hubkit;
+  }
+
   Hubkit.prototype.request = function(path, options) {
     var self = this;
+    options = options || {};
     defaults(options, this.defaultOptions);
     path = interpolatePath(path, options);
     var req = superagent(options.method, path);
@@ -51,12 +65,14 @@
             var match = /<(.+?)>;\s*rel="next"/.exec(res.header.link);
             if (match) {
               if (options.allPages) {
-                req.url = match[1];
+                req = superagent(options.method, match[1]);
+                addHeaders(req, options);
+                cachedItem = checkCache(req, options);
                 req.end(onComplete);
                 return;  // Don't resolve yet, more pages to come.
               } else {
                 result.next = function() {
-                  return self.request(match[1]);
+                  return self.request(match[1], options);
                 };
               }
             }
@@ -85,19 +101,24 @@
       path = a[1];
     }
     options.method = options.method.toLowerCase();
-    path = path.replace(/:([a-z-_]+)|\{([a-z-_]+)\}/gi, function(match, v1, v2) {
-      var v = v1 || v2;
-      if (!(v in options)) {
-        throw new Error('Options missing variable "' + v + '" for path "' + originalPath + '"');
+    path = path.replace(/:([a-z-_]+)|\{(.+?)\}/gi, function(match, v1, v2) {
+      var v = (v1 || v2);
+      var parts = v.split('.');
+      var value = options;
+      for (var i = 0; i < parts.length; i++) {
+        if (!(parts[i] in value)) {
+          throw new Error('Options missing variable "' + v + '" for path "' + originalPath + '"');
+        }
+        value = value[parts[i]];
       }
-      return options[v];
+      return value;
     });
     if (!/^http/.test(path)) path = options.host + path;
     return path;
   }
 
   function addHeaders(req, options) {
-    if (options.token) req.set('Authorization', 'token ' + token);
+    if (options.token) req.set('Authorization', 'token ' + options.token);
     if (!options.token && options.username && options.password) {
       req.auth(options.username, options.password);
     }
