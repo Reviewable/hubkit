@@ -63,6 +63,10 @@ inserted into the cache will be of the form `{value: {...}, eTag: 'abc123', stat
 You can use the (approximate) `size` field to help your cache determine when to evict items.  The
 default cache is set to hold ~500K.
 * `method`: The HTTP method to use for the request.
+* `accept`: A GitHub-specific media type for the response content.  Valid values are:
+  * for comment bodies: `raw+json` (default), `text+json`, `html+json`, `full+json`
+  * for blobs: `json` (default), `raw`
+  * for commits, etc.: `diff`, `patch`
 * `body`: The contents of the request to send, typically a JSON-friendly object.
 * `perPage`: The number of items to return per page of response.  Defaults to 100.
 * `allPages`: Whether to automatically fetch all pages by following the `next` links and concatenate

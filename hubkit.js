@@ -47,16 +47,19 @@ if (typeof require !== 'undefined') {
         Hubkit.rateLimitRemaining = res && res.header['x-ratelimit-remaining'];
         if (error) {
           reject(error);
-        } else if (!(res.ok || res.notFound && res.body && res.body.message === 'Not Found')) {
-          reject(new Error('' + res.status + ': ' + res.body && res.body.message, res.body));
         } else if (res.status === 304) {
           resolve(cachedItem.value);
+        } else if (!(res.ok || res.notFound && res.body && res.body.message === 'Not Found')) {
+          reject(new Error('' + res.status + ': ' + (res.body && res.body.message), res.body));
         } else {
+          if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
+            res.body = JSON.parse(res.text);
+          }
           if (res.body && Array.isArray(res.body)) {
             // Append to current result in case we're paging through.
             result.push.apply(result, res.body);
           } else {
-            result = res.noContent ? true : (res.notFound ? false : res.body);
+            result = res.noContent ? true : (res.notFound ? false : (res.body || res.text));
           }
           if (res.status === 200 && res.header.etag && options.cache) {
             options.cache.set(path, {
@@ -126,6 +129,7 @@ if (typeof require !== 'undefined') {
       req.auth(options.username, options.password);
     }
     if (options.userAgent) req.set('User-Agent', options.userAgent);
+    if (options.media) req.accept('application/vnd.github.' + media);
     req.query({per_page: options.perPage});
   }
 
