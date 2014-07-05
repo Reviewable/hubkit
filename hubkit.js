@@ -1,9 +1,11 @@
-if (require && typeof superagent === 'undefined') superagent = require('superagent');
-if (require && typeof LRUCache === 'undefined') {
-  try {
-    LRUCache = require('lru-cache');
-  } catch(e) {
-    // ignore, not actually required
+if (typeof require !== 'undefined') {
+  if (typeof superagent === 'undefined') superagent = require('superagent');
+  if (typeof LRUCache === 'undefined') {
+    try {
+      LRUCache = require('lru-cache');
+    } catch(e) {
+      // ignore, not actually required
+    }
   }
 }
 
