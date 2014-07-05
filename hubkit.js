@@ -104,9 +104,9 @@ if (typeof require !== 'undefined') {
     var a = path.split(' ');
     if (a.length == 2) {
       options.method = a[0];
-      path = a[1];
+      originalPath = path = a[1];
     }
-    options.method = options.method.toLowerCase();
+    options.method = options.method.toUpperCase();
     path = path.replace(/:([a-z-_]+)|\{(.+?)\}/gi, function(match, v1, v2) {
       var v = (v1 || v2);
       var parts = v.split('.');
