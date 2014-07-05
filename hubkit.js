@@ -51,7 +51,8 @@ if (typeof require !== 'undefined') {
           reject(error);
         } else if (res.status === 304) {
           resolve(cachedItem.value);
-        } else if (!(res.ok || res.notFound && res.body && res.body.message === 'Not Found')) {
+        } else if (!(res.ok || options.boolean && res.notFound && res.body &&
+            res.body.message === 'Not Found')) {
           reject(new Error('' + res.status + ': ' + (res.body && res.body.message), res.body));
         } else {
           if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
@@ -60,8 +61,10 @@ if (typeof require !== 'undefined') {
           if (res.body && Array.isArray(res.body)) {
             // Append to current result in case we're paging through.
             result.push.apply(result, res.body);
+          } else if (options.boolean) {
+            result = !!res.noContent;
           } else {
-            result = res.noContent ? true : (res.notFound ? false : (res.body || res.text));
+            result = res.body || res.text;
           }
           if (res.status === 200 && res.header.etag && options.cache) {
             options.cache.set(path, {
