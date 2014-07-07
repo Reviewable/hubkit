@@ -28,7 +28,7 @@ if (typeof require !== 'undefined') {
   };
 
   if (typeof module === 'undefined') {
-    window.Hubkit = Hubkit;
+    this.Hubkit = Hubkit;
   } else {
     module.exports = Hubkit;
   }
