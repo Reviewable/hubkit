@@ -147,4 +147,4 @@ if (typeof require !== 'undefined') {
     if (cachedItem) req.set('If-None-Match', cachedItem.eTag);
     return cachedItem;
   }
-})();
+}).call(this);
