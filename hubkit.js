@@ -40,7 +40,11 @@ if (typeof require !== 'undefined') {
     path = interpolatePath(path, options);
     var req = superagent(options.method, path);
     addHeaders(req, options);
+    // Pin cached value, in case it gets evicted during the request
     var cachedItem = checkCache(req, options);
+    if (options.immutable && options.method === 'GET' && cachedItem) {
+      return Promise.resolve(cachedItem.value);
+    }
 
     return new Promise(function(resolve, reject) {
       var result = [];
@@ -142,8 +146,7 @@ if (typeof require !== 'undefined') {
   }
 
   function checkCache(req, options) {
-    // Pin cached value here, in case it gets evicted during the request
-    var cachedItem = options.method === 'get' && options.cache && options.cache.get(req.url);
+    var cachedItem = options.method === 'GET' && options.cache && options.cache.get(req.url);
     if (cachedItem) req.set('If-None-Match', cachedItem.eTag);
     return cachedItem;
   }
