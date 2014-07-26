@@ -9,7 +9,27 @@ if (typeof require !== 'undefined') {
   }
 }
 
-(function() {
+(function(init) {
+  'use strict';
+  var Hubkit = init();
+  if (typeof angular !== 'undefined') {
+    angular.module('hubkit', []).factory('Hubkit', ['$q', '$rootScope', function($q, $rootScope) {
+      Promise = function(fn) {
+        var deferred = $q.defer();
+        fn(
+          function(value) {deferred.resolve(value);},
+          function(reason) {deferred.reject(reason);}
+        );
+        return deferred.promise;
+      };
+      return Hubkit;
+    }]);
+  } else if (typeof module !== 'undefined') {
+    module.exports = Hubkit;
+  } else {
+    this.Hubkit = Hubkit;
+  }
+}).call(this, function() {
   'use strict';
 
   var cache = typeof LRUCache === 'undefined' ? null :
@@ -26,12 +46,6 @@ if (typeof require !== 'undefined') {
     }
     this.defaultOptions = options;
   };
-
-  if (typeof module === 'undefined') {
-    this.Hubkit = Hubkit;
-  } else {
-    module.exports = Hubkit;
-  }
 
   Hubkit.prototype.request = function(path, options) {
     var self = this;
@@ -114,7 +128,7 @@ if (typeof require !== 'undefined') {
   function interpolatePath(path, options) {
     var originalPath = path;
     var a = path.split(' ');
-    if (a.length == 2) {
+    if (a.length === 2) {
       options.method = a[0];
       originalPath = path = a[1];
     }
@@ -150,4 +164,6 @@ if (typeof require !== 'undefined') {
     if (cachedItem) req.set('If-None-Match', cachedItem.eTag);
     return cachedItem;
   }
-}).call(this);
+
+  return Hubkit;
+});
