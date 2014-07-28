@@ -57,10 +57,10 @@ if (typeof require !== 'undefined') {
     // Pin cached value, in case it gets evicted during the request
     var cachedItem = checkCache(req, options);
     if (options.immutable && options.method === 'GET' && cachedItem) {
-      return Promise.resolve(cachedItem.value);
+      return cachedItem.promise || Promise.resolve(cachedItem.value);
     }
 
-    return new Promise(function(resolve, reject) {
+    var requestPromise = new Promise(function(resolve, reject) {
       var result = [];
 
       function onComplete(error, res) {
@@ -116,6 +116,11 @@ if (typeof require !== 'undefined') {
       req.send(options.body).end(onComplete);
     });
 
+    if (options.immutable && options.method === 'GET') {
+      options.cache.set(path, {promise: requestPromise});
+    }
+    return requestPromise;
+
   };
 
   function defaults(o1, o2) {
@@ -161,7 +166,7 @@ if (typeof require !== 'undefined') {
 
   function checkCache(req, options) {
     var cachedItem = options.method === 'GET' && options.cache && options.cache.get(req.url);
-    if (cachedItem) req.set('If-None-Match', cachedItem.eTag);
+    if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
     return cachedItem;
   }
 
