@@ -85,7 +85,7 @@ if (typeof require !== 'undefined') {
           } else if (options.boolean) {
             result = !!res.noContent;
           } else {
-            result = res.body || res.text;
+            result = (res.body && Object.keys(res.body).length) ? res.body : res.text;
           }
           if (res.status === 200 && res.header.etag && options.cache) {
             options.cache.set(path, {
