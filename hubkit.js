@@ -130,28 +130,37 @@ if (typeof require !== 'undefined') {
     return o1;
   }
 
+  Hubkit.prototype.interpolate = function(string, options) {
+    options = options ? defaults(options, this.defaultOptions) : this.defaultOptions;
+    return interpolate(string, options);
+  };
+
   function interpolatePath(path, options) {
-    var originalPath = path;
     var a = path.split(' ');
     if (a.length === 2) {
       options.method = a[0];
-      originalPath = path = a[1];
+      path = a[1];
     }
     options.method = options.method.toUpperCase();
-    path = path.replace(/:([a-z-_]+)|\{(.+?)\}/gi, function(match, v1, v2) {
+    path = interpolate(path, options);
+    if (!/^http/.test(path)) path = options.host + path;
+    return path;
+  }
+
+  function interpolate(string, options) {
+    string = string.replace(/:([a-z-_]+)|\{(.+?)\}/gi, function(match, v1, v2) {
       var v = (v1 || v2);
       var parts = v.split('.');
       var value = options;
       for (var i = 0; i < parts.length; i++) {
         if (!(parts[i] in value)) {
-          throw new Error('Options missing variable "' + v + '" for path "' + originalPath + '"');
+          throw new Error('Options missing variable "' + v + '" for path "' + string + '"');
         }
         value = value[parts[i]];
       }
       return value;
     });
-    if (!/^http/.test(path)) path = options.host + path;
-    return path;
+    return string;
   }
 
   function addHeaders(req, options) {
