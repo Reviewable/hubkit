@@ -74,7 +74,18 @@ if (typeof require !== 'undefined') {
           resolve(cachedItem.value);
         } else if (!(res.ok || options.boolean && res.notFound && res.body &&
             res.body.message === 'Not Found')) {
-          reject(new Error('' + res.status + ': ' + (res.body && res.body.message), res.body));
+          var errors = '';
+          if (res.body.errors) {
+            errors = [];
+            for (var i = 0; i < res.body.errors.length; i++) {
+              errors.push(res.body.errors[i].message);
+            }
+            errors = ' (' + errors.join(', ') + ')';
+          }
+          reject(new Error(
+            'GitHub error ' + res.status + ': ' + (res.body && res.body.message) + errors,
+            res.body
+          ));
         } else {
           if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
             res.body = JSON.parse(res.text);
