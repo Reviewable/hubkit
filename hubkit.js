@@ -13,8 +13,9 @@ if (typeof require !== 'undefined') {
   'use strict';
   var Hubkit = init();
   if (typeof angular !== 'undefined') {
+    var glob = this;
     angular.module('hubkit', []).factory('Hubkit', ['$q', '$rootScope', function($q, $rootScope) {
-      Promise = function(fn) {
+      glob.Promise = function(fn) {
         var deferred = $q.defer();
         fn(
           function(value) {deferred.resolve(value);},
