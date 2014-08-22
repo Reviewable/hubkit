@@ -65,8 +65,10 @@ if (typeof require !== 'undefined') {
       var result = [];
 
       function onComplete(error, res) {
-        Hubkit.rateLimit = res && res.header['x-ratelimit-limit'];
-        Hubkit.rateLimitRemaining = res && res.header['x-ratelimit-remaining'];
+        Hubkit.rateLimit = res && res.header['x-ratelimit-limit'] &&
+          parseInt(res.header['x-ratelimit-limit'], 10);
+        Hubkit.rateLimitRemaining = res && res.header['x-ratelimit-remaining'] &&
+          parseInt(res.header['x-ratelimit-remaining'], 10);
         Hubkit.oAuthScopes = res && res.header['x-oauth-scopes'] &&
           res.header['x-oauth-scopes'].split(/\s*,\s*/);
         if (error) {
