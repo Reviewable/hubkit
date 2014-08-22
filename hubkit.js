@@ -55,10 +55,18 @@ if (typeof require !== 'undefined') {
     path = interpolatePath(path, options);
     var req = superagent(options.method, path);
     addHeaders(req, options);
-    // Pin cached value, in case it gets evicted during the request
-    var cachedItem = checkCache(req, options);
-    if (options.immutable && options.method === 'GET' && cachedItem) {
-      return cachedItem.promise || Promise.resolve(cachedItem.value);
+    var cachedItem = null;
+    if (options.cache) {
+      // Pin cached value, in case it gets evicted during the request
+      cachedItem = checkCache(req, options);
+      if (options.immutable && options.method === 'GET' && cachedItem) {
+        return cachedItem.promise || Promise.resolve(cachedItem.value);
+      }
+    } else {
+      // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
+      // allowed by Github's cross-domain request headers.
+      // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
+      req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
     }
 
     var requestPromise = new Promise(function(resolve, reject) {
