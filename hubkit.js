@@ -77,8 +77,11 @@ if (typeof require !== 'undefined') {
           parseInt(res.header['x-ratelimit-limit'], 10);
         Hubkit.rateLimitRemaining = res && res.header['x-ratelimit-remaining'] &&
           parseInt(res.header['x-ratelimit-remaining'], 10);
-        Hubkit.oAuthScopes = res && res.header['x-oauth-scopes'] &&
-          res.header['x-oauth-scopes'].split(/\s*,\s*/);
+        // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
+        // missing.
+        if (res && res.header['x-oauth-scopes']) {
+          Hubkit.oAuthScopes = res.header['x-oauth-scopes'].split(/\s*,\s*/);
+        }
         if (error) {
           reject(error);
         } else if (res.status === 304) {
