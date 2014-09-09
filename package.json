@@ -1,6 +1,6 @@
 {
   "name": "hubkit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "GitHub API library for JavaScript, promise-based, for both NodeJS and the browser",
   "main": "index.js",
   "scripts": {
@@ -22,6 +22,6 @@
   },
   "homepage": "https://github.com/pkaminski/hubkit",
   "dependencies": {
-    "superagent": "pkaminski/superagent"
+    "superagent": "pkaminski/superagent#master"
   }
 }
