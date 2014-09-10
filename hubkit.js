@@ -100,7 +100,8 @@ if (typeof require !== 'undefined') {
               errors = ' (' + errors.join(', ') + ')';
             }
             reject(new Error(
-              'GitHub error ' + res.status + ': ' + (res.body && res.body.message) + errors
+              'GitHub error ' + res.status + ' on ' + options.method + ' ' + path + ': ' +
+              (res.body && res.body.message) + errors
             ));
           }
         } else {
