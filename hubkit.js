@@ -97,8 +97,7 @@ if (typeof require !== 'undefined') {
             errors = ' (' + errors.join(', ') + ')';
           }
           reject(new Error(
-            'GitHub error ' + res.status + ': ' + (res.body && res.body.message) + errors,
-            res.body
+            'GitHub error ' + res.status + ': ' + (res.body && res.body.message) + errors
           ));
         } else {
           if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
