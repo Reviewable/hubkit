@@ -142,7 +142,11 @@ if (typeof require !== 'undefined') {
         }
       }
 
-      req.send(options.body).end(onComplete);
+      if (options.method === 'GET') {
+        req.query(options.body).end(onComplete);
+      } else {
+        req.send(options.body).end(onComplete);
+      }
     });
 
     if (options.immutable && options.method === 'GET') {
