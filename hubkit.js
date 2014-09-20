@@ -73,9 +73,10 @@ if (typeof require !== 'undefined') {
       var result = [];
 
       function onComplete(error, res) {
-        Hubkit.rateLimit = res && res.header['x-ratelimit-limit'] &&
+        var rateName = /^https?:\/\/[^/]+\/search\//.test(path) ? 'searchRateLimit' : 'rateLimit';
+        Hubkit[rateName] = res && res.header['x-ratelimit-limit'] &&
           parseInt(res.header['x-ratelimit-limit'], 10);
-        Hubkit.rateLimitRemaining = res && res.header['x-ratelimit-remaining'] &&
+        Hubkit[rateName + 'Remaining'] = res && res.header['x-ratelimit-remaining'] &&
           parseInt(res.header['x-ratelimit-remaining'], 10);
         // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
         // missing.
