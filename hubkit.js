@@ -95,7 +95,12 @@ if (typeof require !== 'undefined') {
             if (res.body.errors) {
               errors = [];
               for (var i = 0; i < res.body.errors.length; i++) {
-                errors.push(res.body.errors[i].message);
+                var errorItem = res.body.errors[i];
+                if (errorItem.message) {
+                  errors.push(errorItem.message);
+                } else if (errorItem.field && errorItem.code) {
+                  errors.push('field ' + errorItem.field + ' ' + errorItem.code);
+                }
               }
               errors = ' (' + errors.join(', ') + ')';
             }
