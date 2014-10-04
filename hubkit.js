@@ -80,8 +80,11 @@ if (typeof require !== 'undefined') {
           parseInt(res.header['x-ratelimit-remaining'], 10);
         // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
         // missing.
-        if (res && res.header['x-oauth-scopes']) {
-          Hubkit.oAuthScopes = res.header['x-oauth-scopes'].split(/\s*,\s*/);
+        if (res && 'x-oauth-scopes' in res.header) {
+          Hubkit.oAuthScopes = (res.header['x-oauth-scopes'] || '').split(/\s*,\s*/);
+          if (Hubkit.oAuthScopes.length === 1 && Hubkit.oAuthScopes[0] === '') {
+            Hubkit.oAuthScopes = [];
+          }
         }
         if (error) {
           reject(error);
