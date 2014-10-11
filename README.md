@@ -64,6 +64,7 @@ in NodeJS.
 inserted into the cache will be of the form `{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.
 You can use the (approximate) `size` field to help your cache determine when to evict items.  The
 default cache is set to hold ~500K.
+* `immutable`: If true, indicates that the return value for this call is immutable, so if it's available in the cache it can be reused without sending a request to GitHub to check freshness.
 * `method`: The HTTP method to use for the request.
 * `media`: A GitHub-specific [media type](https://developer.github.com/v3/media/) for the response
 content.  Valid values are:
@@ -76,3 +77,5 @@ content.  Valid values are:
 the results before returning them.  Defaults to true.  If set to false and a result has more pages,
 you'll find a `next()` function on the result that you can call to get a promise with the next page
 of items.
+* `boolean`: If true, interprets a 404 as false and a 20x as true.
+* `ifNotFound`: A value to return instead of throwing an exception when the request results in a 404.
