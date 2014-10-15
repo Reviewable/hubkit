@@ -67,6 +67,13 @@ if (typeof require !== 'undefined') {
     var requestPromise = new Promise(function(resolve, reject) {
       var result = [];
 
+      function handleError(error) {
+        if (options.cache && options.method === 'GET') options.cache.del(path);
+        var result;
+        if (options.onError) result = options.onError(error);
+        if (_.isUndefined(result)) reject(error); else resolve(result);
+      }
+
       function onComplete(error, res) {
         var rateName = /^https?:\/\/[^/]+\/search\//.test(path) ? 'searchRateLimit' : 'rateLimit';
         Hubkit[rateName] = res && res.header['x-ratelimit-limit'] &&
@@ -82,7 +89,7 @@ if (typeof require !== 'undefined') {
           }
         }
         if (error) {
-          reject(error);
+          handleError(error);
         } else if (res.status === 304) {
           resolve(cachedItem.value);
         } else if (!(res.ok || options.boolean && res.notFound && res.body &&
@@ -103,10 +110,15 @@ if (typeof require !== 'undefined') {
               }
               errors = ' (' + errors.join(', ') + ')';
             }
-            reject(new Error(
+            var statusError = new Error(
               'GitHub error ' + res.status + ' on ' + options.method + ' ' + path + ': ' +
               (res.body && res.body.message) + errors
-            ));
+            );
+            statusError.status = res.status;
+            statusError.method = options.method;
+            statusError.path = path;
+            statusError.response = res;
+            handleError(statusError);
           }
         } else {
           if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {

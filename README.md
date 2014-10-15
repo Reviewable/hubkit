@@ -60,8 +60,9 @@ Valid options to pass (to the constructor or to each request) include:
 * `userAgent`: The user-agent to present in requests.  Uses the browser's user agent, or `Hubkit`
 in NodeJS.
 * `host`: The hostname to prepend to all request paths; defaults to `https://api.github.com`.
-* `cache`: An object with `get` and `set` methods to be used as a cache for responses.  The objects
-inserted into the cache will be of the form `{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.
+* `cache`: An object with `get`, `set`, and `del` methods to be used as a cache for responses.  The
+objects inserted into the cache will be of the form
+`{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.
 You can use the (approximate) `size` field to help your cache determine when to evict items.  The
 default cache is set to hold ~500K.
 * `immutable`: If true, indicates that the return value for this call is immutable, so if it's available in the cache it can be reused without sending a request to GitHub to check freshness.
@@ -79,3 +80,7 @@ you'll find a `next()` function on the result that you can call to get a promise
 of items.
 * `boolean`: If true, interprets a 404 as false and a 20x as true.
 * `ifNotFound`: A value to return instead of throwing an exception when the request results in a 404.
+* `onError`: A function to be called when an error occurs, either in the request itself or an
+unexpected 4xx or 5xx response.  If it's an error response, the error object will have `status`,
+`method`, `path`, and `response` attributes.  If the function returns `undefined`, the promise will
+be rejected as usual, otherwise it will be resolved with the returned value.
