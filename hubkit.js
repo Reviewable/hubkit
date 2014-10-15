@@ -71,7 +71,7 @@ if (typeof require !== 'undefined') {
         if (options.cache && options.method === 'GET') options.cache.del(path);
         var result;
         if (options.onError) result = options.onError(error);
-        if (_.isUndefined(result)) reject(error); else resolve(result);
+        if (result === undefined) reject(error); else resolve(result);
       }
 
       function onComplete(error, res) {
