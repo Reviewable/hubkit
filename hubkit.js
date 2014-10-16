@@ -166,7 +166,7 @@ if (typeof require !== 'undefined') {
     });
 
     if (options.immutable && options.method === 'GET') {
-      options.cache.set(path, {promise: requestPromise});
+      options.cache.set(path, {promise: requestPromise, size: 100});
     }
     return requestPromise;
 
