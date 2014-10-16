@@ -29,7 +29,7 @@ if (typeof require !== 'undefined') {
   'use strict';
 
   var cache = typeof LRUCache === 'undefined' ? null :
-    new LRUCache({max: 500000, length: function(item) {return item.size;}});
+    new LRUCache({max: 10000000, length: function(item) {return item.size;}});
 
   var Hubkit = function(options) {
     options = defaults({}, options);
@@ -135,7 +135,7 @@ if (typeof require !== 'undefined') {
           if (res.status === 200 && res.header.etag && options.cache) {
             options.cache.set(path, {
               value: result, eTag: res.header.etag, status: res.status,
-              size: res.header['content-length']
+              size: res.text.length
             });
           }
           if (res.header.link) {
