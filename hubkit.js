@@ -55,7 +55,8 @@ if (typeof require !== 'undefined') {
       // Pin cached value, in case it gets evicted during the request
       cachedItem = checkCache(req, options);
       if (options.immutable && options.method === 'GET' && cachedItem) {
-        if (req.abort) req.abort();
+        // Abort is needed only in Node implementation, check for req.req vs req.xhr.
+        if (req.req) req.abort();
         return cachedItem.promise || Promise.resolve(cachedItem.value);
       }
     } else {
