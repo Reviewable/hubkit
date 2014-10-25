@@ -91,6 +91,7 @@ if (typeof require !== 'undefined') {
           }
         }
         if (error) {
+          error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
           handleError(error);
         } else if (res.status === 304) {
           resolve(cachedItem.value);
