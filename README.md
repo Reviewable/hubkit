@@ -60,6 +60,7 @@ Valid options to pass (to the constructor or to each request) include:
 * `userAgent`: The user-agent to present in requests.  Uses the browser's user agent, or `Hubkit`
 in NodeJS.
 * `host`: The hostname to prepend to all request paths; defaults to `https://api.github.com`.
+* `timeout`: The timeout in milliseconds to apply to the request; none by default.  If the timeout is reached, the request will abort with an error that will have a `timeout` attribute set to the value you provided.
 * `cache`: An object with `get`, `set`, and `del` methods to be used as a cache for responses.  The
 objects inserted into the cache will be of the form
 `{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.

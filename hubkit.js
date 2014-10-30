@@ -65,6 +65,7 @@ if (typeof require !== 'undefined') {
       // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
       req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
     }
+    if (options.timeout) req.timeout(timeout);
 
     var requestPromise = new Promise(function(resolve, reject) {
       var result = [];
