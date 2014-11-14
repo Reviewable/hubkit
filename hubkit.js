@@ -28,20 +28,21 @@ if (typeof require !== 'undefined') {
 }).call(this, function() {
   'use strict';
 
-  var cache = typeof LRUCache === 'undefined' ? null :
-    new LRUCache({max: 10000000, length: function(item) {return item.size;}});
-
   var Hubkit = function(options) {
     options = defaults({}, options);
-    defaults(options, {
-      method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, cache: cache
-    });
+    defaults(options, Hubkit.defaults);
     // NodeJS doesn't set a userAgent by default but GitHub requires one.
     if (typeof require !== 'undefined' && !options.userAgent) {
       options.userAgent = 'Hubkit';
     }
     this.defaultOptions = options;
   };
+
+  Hubkit.defaults = {method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true};
+  if (typeof LRUCache !== 'undefined') {
+    Hubkit.defaults.cache =
+      new LRUCache({max: 10000000, length: function(item) {return item.size;}});
+  }
 
   Hubkit.prototype.request = function(path, options) {
     var self = this;

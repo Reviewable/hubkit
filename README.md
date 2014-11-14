@@ -9,8 +9,8 @@ Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](http
 
 To enable caching, make sure that [LRUCache](https://github.com/isaacs/node-lru-cache) is loaded.
 It's installed by default for Node, but in the browser you need to load `lru-cache.js`.  Or you
-can pass any other cache instance as an option to the constructor, as long as it has `get` and `set`
-methods.
+can pass any other cache instance as an option to the constructor, as long as it has `get`, `set`,
+and `del` methods.
 
 A simple example:
 
@@ -54,7 +54,8 @@ After every request, you can access `Hubkit.rateLimit` and `Hubkit.rateLimitRema
 latest information on your GitHub quotas, and `Hubkit.oAuthScopes` to see what scopes your
 authorization entitles you to.
 
-Valid options to pass (to the constructor or to each request) include:
+Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
+include:
 * `token`: String token to use for authentication; takes precedence over username and password.
 * `username` and `password`: For basic authentication.
 * `userAgent`: The user-agent to present in requests.  Uses the browser's user agent, or `Hubkit`
@@ -65,7 +66,7 @@ in NodeJS.
 objects inserted into the cache will be of the form
 `{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.
 You can use the (approximate) `size` field to help your cache determine when to evict items.  The
-default cache is set to hold ~500K.
+default cache is set to hold ~10MB.
 * `immutable`: If true, indicates that the return value for this call is immutable, so if it's available in the cache it can be reused without sending a request to GitHub to check freshness.
 * `method`: The HTTP method to use for the request.
 * `media`: A GitHub-specific [media type](https://developer.github.com/v3/media/) for the response
