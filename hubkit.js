@@ -90,6 +90,11 @@ if (typeof require !== 'undefined') {
           Hubkit.oAuthScopes = (res.header['x-oauth-scopes'] || '').split(/\s*,\s*/);
           if (Hubkit.oAuthScopes.length === 1 && Hubkit.oAuthScopes[0] === '') {
             Hubkit.oAuthScopes = [];
+          } else {
+            var uniqueOAuthScopes = {};
+            Hubkit.oAuthScopes.forEach(function(scope) {uniqueOAuthScopes[scope] = true;});
+            Hubkit.oAuthScopes = Object.keys(uniqueOAuthScopes);
+            Hubkit.oAuthScopes.sort();
           }
         }
         if (error) {
