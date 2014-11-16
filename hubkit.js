@@ -38,11 +38,14 @@ if (typeof require !== 'undefined') {
     this.defaultOptions = options;
   };
 
-  Hubkit.defaults = {method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true};
+  Hubkit.defaults = {
+    method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3
+  };
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
       new LRUCache({max: 10000000, length: function(item) {return item.size;}});
   }
+  Hubkit.RETRY = {};  // marker object
 
   Hubkit.prototype.request = function(path, options) {
     var self = this;
@@ -66,16 +69,33 @@ if (typeof require !== 'undefined') {
       // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
       req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
     }
-    if (options.timeout) req.timeout(options.timeout);
 
     var requestPromise = new Promise(function(resolve, reject) {
-      var result = [];
+      var result = [], tries = 0;
+      send();
 
       function handleError(error) {
         if (options.cache && options.method === 'GET') options.cache.del(path);
-        var result;
-        if (options.onError) result = options.onError(error);
-        if (result === undefined) reject(error); else resolve(result);
+        var value;
+        if (options.onError) value = options.onError(error);
+        if (value === Hubkit.RETRY && tries < options.maxTries) {
+          req = superagent(options.method, path);
+          addHeaders(req, options);
+          req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
+          send();
+          return;
+        }
+        if (value === undefined || value === Hubkit.RETRY) reject(error); else resolve(value);
+      }
+
+      function send() {
+        tries++;
+        if (options.timeout) req.timeout(options.timeout);
+        if (options.method === 'GET') {
+          req.query(options.body).end(onComplete);
+        } else {
+          req.send(options.body).end(onComplete);
+        }
       }
 
       function onComplete(error, res) {
@@ -87,14 +107,16 @@ if (typeof require !== 'undefined') {
         // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
         // missing.
         if (res && 'x-oauth-scopes' in res.header) {
-          Hubkit.oAuthScopes = (res.header['x-oauth-scopes'] || '').split(/\s*,\s*/);
-          if (Hubkit.oAuthScopes.length === 1 && Hubkit.oAuthScopes[0] === '') {
+          var scopes = (res.header['x-oauth-scopes'] || '').split(/\s*,\s*/);
+          if (scopes.length === 1 && scopes[0] === '') {
             Hubkit.oAuthScopes = [];
           } else {
-            var uniqueOAuthScopes = {};
-            Hubkit.oAuthScopes.forEach(function(scope) {uniqueOAuthScopes[scope] = true;});
-            Hubkit.oAuthScopes = Object.keys(uniqueOAuthScopes);
-            Hubkit.oAuthScopes.sort();
+            // GitHub will sometimes return duplicate scopes in the list, so uniquefy them.
+            scopes.sort();
+            Hubkit.oAuthScopes = [];
+            for (var i = 0; i < scopes.length; i++) {
+              if (i === 0 || scopes[i-1] !== scopes[i]) Hubkit.oAuthScopes.push(scopes[i]);
+            }
           }
         }
         if (error) {
@@ -167,12 +189,6 @@ if (typeof require !== 'undefined') {
           resolve(result);
         }
       }
-
-      if (options.method === 'GET') {
-        req.query(options.body).end(onComplete);
-      } else {
-        req.send(options.body).end(onComplete);
-      }
     });
 
     if (options.immutable && options.method === 'GET') {
@@ -183,6 +199,13 @@ if (typeof require !== 'undefined') {
   };
 
   function defaults(o1, o2) {
+    var onError1 = o1 && o1.onError, onError2 = o2 && o2.onError;
+    if (onError1 && onError2) {
+      o1.onError = function(error) {
+        var value1 = onError1(error), value2 = onError2(error);
+        return value1 === undefined ? value2 : value1;
+      };
+    }
     for (var key in o2) {
       if (!(key in o1)) o1[key] = o2[key];
     }
