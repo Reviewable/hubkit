@@ -226,7 +226,7 @@ if (typeof require !== 'undefined') {
     options.method = options.method.toUpperCase();
     path = interpolate(path, options);
     if (!/^http/.test(path)) path = options.host + path;
-    return path;
+    return encodeURI(path);
   }
 
   function interpolate(string, options) {
