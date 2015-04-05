@@ -75,6 +75,7 @@ content.  Valid values are:
   * for blobs: `json` (default), `raw`
   * for commits, etc.: `diff`, `patch`
 * `body`: The contents of the request to send, typically a JSON-friendly object.
+* `responseType`: The XHR2 response type if you want to receive raw binary data; one of `text`, `arraybuffer`, `blob`, or `document`.  Only useful when fetching file blobs.
 * `perPage`: The number of items to return per page of response.  Defaults to 100.
 * `allPages`: Whether to automatically fetch all pages by following the `next` links and concatenate
 the results before returning them.  Defaults to true.  If set to false and a result has more pages,

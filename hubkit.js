@@ -25,6 +25,7 @@ if (typeof require !== 'undefined') {
   } else {
     this.Hubkit = Hubkit;
   }
+  superagent.parse['text/plain'] = function(o) {return o;};
 }).call(this, function() {
   'use strict';
 
@@ -162,12 +163,13 @@ if (typeof require !== 'undefined') {
           } else if (options.boolean) {
             result = !!res.noContent;
           } else {
-            result = (res.body && Object.keys(res.body).length) ? res.body : res.text;
+            result = (options.responseType || res.body && Object.keys(res.body).length) ?
+              res.body : res.text;
           }
           if (res.status === 200 && res.header.etag && options.cache) {
             options.cache.set(path, {
               value: result, eTag: res.header.etag, status: res.status,
-              size: res.text.length
+              size: res.text ? res.text.length : (res.body.size || res.body.byteLength)
             });
           }
           if (res.header.link) {
@@ -253,6 +255,9 @@ if (typeof require !== 'undefined') {
     if (options.userAgent) req.set('User-Agent', options.userAgent);
     if (options.media) req.accept('application/vnd.github.' + options.media);
     req.query({per_page: options.perPage});
+    if (options.responseType) req.on('request', function() {
+      this.xhr.responseType = options.responseType;
+    });
   }
 
   function checkCache(req, options) {
