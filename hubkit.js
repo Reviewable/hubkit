@@ -18,6 +18,30 @@ if (typeof require !== 'undefined') {
         );
         return deferred.promise;
       };
+
+      glob.Promise.all = $q.all.bind($q);
+      glob.Promise.reject = $q.reject.bind($q);
+      glob.Promise.resolve = $q.when.bind($q);
+
+      glob.Promise.race = function(promises) {
+        var promiseMgr = $q.defer();
+        for(var i = 0; i < promises.length; i++) {
+          promises[i].then(function(result) {
+            if (promiseMgr) {
+              promiseMgr.resolve(result);
+              promiseMgr = null;
+            }
+          });
+          promises[i].catch(function(result) {
+            if (promiseMgr) {
+              promiseMgr.reject(result);
+              promiseMgr = null;
+            }
+          });
+        }
+        return promiseMgr.promise;
+      };
+
       return Hubkit;
     }]);
   } else if (typeof module !== 'undefined') {
