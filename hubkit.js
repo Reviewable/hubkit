@@ -155,7 +155,7 @@ if (typeof require !== 'undefined') {
             resolve(options.ifNotFound);
           } else {
             var errors = '';
-            if (res.body.errors) {
+            if (res.body && res.body.errors) {
               errors = [];
               for (var i = 0; i < res.body.errors.length; i++) {
                 var errorItem = res.body.errors[i];
