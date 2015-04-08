@@ -187,7 +187,8 @@ if (typeof require !== 'undefined') {
           } else if (options.boolean) {
             result = !!res.noContent;
           } else {
-            result = (options.responseType || res.body && Object.keys(res.body).length) ?
+            result = (options.responseType ||
+                      res.body && typeof res.body === 'object' && Object.keys(res.body).length) ?
               res.body : res.text;
           }
           if (res.status === 200 && res.header.etag && options.cache) {
