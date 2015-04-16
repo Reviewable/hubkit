@@ -194,7 +194,8 @@ if (typeof require !== 'undefined') {
           if (res.status === 200 && res.header.etag && options.cache) {
             options.cache.set(path, {
               value: result, eTag: res.header.etag, status: res.status,
-              size: res.text ? res.text.length : (res.body.size || res.body.byteLength)
+              size: res.text ? res.text.length : (res.body ?
+                (res.body.size || res.body.byteLength) : 1)
             });
           }
           if (res.header.link) {
