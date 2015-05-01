@@ -79,16 +79,18 @@ if (typeof require !== 'undefined') {
     path = interpolatePath(path, options);
     var req = superagent(options.method, path);
     addHeaders(req, options);
-    var cachedItem = null;
-    if (options.cache) {
+    var cachedItem = null, cacheKey;
+    if (options.cache && options.method === 'GET') {
       // Pin cached value, in case it gets evicted during the request
-      cachedItem = checkCache(req, options);
-      if (options.immutable && options.method === 'GET' && cachedItem) {
+      cacheKey = computeCacheKey(req, options);
+      cachedItem = checkCache(req, options, cacheKey);
+      if (options.immutable && cachedItem) {
         // Abort is needed only in Node implementation, check for req.req vs req.xhr.
         if (req.req) req.abort();
         return cachedItem.promise || Promise.resolve(cachedItem.value);
       }
-    } else {
+    }
+    if (!cachedItem) {
       // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
       // allowed by Github's cross-domain request headers.
       // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
@@ -100,7 +102,7 @@ if (typeof require !== 'undefined') {
       send();
 
       function handleError(error) {
-        if (options.cache && options.method === 'GET') options.cache.del(path);
+        if (options.cache && options.method === 'GET') options.cache.del(cacheKey);
         var value;
         if (options.onError) value = options.onError(error);
         if (value === Hubkit.RETRY && tries < options.maxTries) {
@@ -151,6 +153,9 @@ if (typeof require !== 'undefined') {
           resolve(cachedItem.value);
         } else if (!(res.ok || options.boolean && res.notFound && res.body &&
             res.body.message === 'Not Found')) {
+          if (options.immutable && options.cache && options.method === 'GET') {
+            options.cache.del(cacheKey);
+          }
           if (res.status === 404 && typeof options.ifNotFound !== 'undefined') {
             resolve(options.ifNotFound);
           } else {
@@ -191,20 +196,14 @@ if (typeof require !== 'undefined') {
                       res.body && typeof res.body === 'object' && Object.keys(res.body).length) ?
               res.body : res.text;
           }
-          if (res.status === 200 && res.header.etag && options.cache) {
-            options.cache.set(path, {
-              value: result, eTag: res.header.etag, status: res.status,
-              size: res.text ? res.text.length : (res.body ?
-                (res.body.size || res.body.byteLength) : 1)
-            });
-          }
           if (res.header.link) {
             var match = /<(.+?)>;\s*rel="next"/.exec(res.header.link);
             if (match) {
               if (options.allPages) {
                 req = superagent(options.method, match[1]);
                 addHeaders(req, options);
-                cachedItem = checkCache(req, options);
+                cachedItem = null;
+                req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
                 req.end(onComplete);
                 return;  // Don't resolve yet, more pages to come.
               } else {
@@ -214,13 +213,24 @@ if (typeof require !== 'undefined') {
               }
             }
           }
+          if (options.cache && options.method === 'GET') {
+            if (res.status === 200 && res.header.etag) {
+              options.cache.set(cacheKey, {
+                value: result, eTag: res.header.etag, status: res.status,
+                size: res.text ? res.text.length : (res.body ?
+                  (res.body.size || res.body.byteLength) : 1)
+              });
+            } else if (options.immutable) {
+              options.cache.del(cacheKey);
+            }
+          }
           resolve(result);
         }
       }
     });
 
-    if (options.immutable && options.method === 'GET') {
-      options.cache.set(path, {promise: requestPromise, size: 100});
+    if (options.immutable && options.method === 'GET' && options.cache) {
+      options.cache.set(cacheKey, {promise: requestPromise, size: 100});
     }
     return requestPromise;
 
@@ -286,8 +296,26 @@ if (typeof require !== 'undefined') {
     });
   }
 
-  function checkCache(req, options) {
-    var cachedItem = options.method === 'GET' && options.cache && options.cache.get(req.url);
+  function computeCacheKey(req, options) {
+    var cacheKey = req.url;
+    var sortedQuery = [];
+    sortedQuery.push('per_page=' + options.perPage);
+    if (options.boolean) sortedQuery.push('_boolean=true');
+    if (options.allPages) sortedQuery.push('_allPages=true');
+    if (options.responseType) sortedQuery.push('_responseType=' + options.responseType);
+    if (options.media) sortedQuery.push('_media=' + encodeURIComponent(options.media));
+    if (options.body) {
+      for (var key in options.body) {
+        sortedQuery.push(encodeURIComponent(key) + '=' + encodeURIComponent(options.body[key]));
+      }
+    }
+    sortedQuery.sort();
+    cacheKey += (/\?/.test(cacheKey) ? '&' : '?') + sortedQuery.join('&');
+    return cacheKey;
+  }
+
+  function checkCache(req, options, cacheKey) {
+    var cachedItem = options.cache.get(cacheKey);
     if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
     return cachedItem;
   }
