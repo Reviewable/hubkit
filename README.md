@@ -50,9 +50,10 @@ The returned values are exactly as documented in the GitHub API, except that req
 paged responses, all pages will be concatenated together into the return value by default (see
 below).
 
-After every request, you can access `Hubkit.rateLimit` and `Hubkit.rateLimitRemaining` for the
-latest information on your GitHub quotas, and `Hubkit.oAuthScopes` to see what scopes your
-authorization entitles you to.
+After every request, you can access `rateLimit` and `rateLimitRemaining` (or `searchRateLimit` and
+`searchRateLimitRemaining` if it's a search request) for the latest information on your GitHub
+quotas, and `oAuthScopes` to see what scopes your authorization entitles you to, on your `metadata`
+object (see below) or on `Hubkit` if you didn't set one.
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
 include:
@@ -82,6 +83,7 @@ the results before returning them.  Defaults to true.  If set to false and a res
 you'll find a `next()` function on the result that you can call to get a promise with the next page
 of items.
 * `boolean`: If true, interprets a 404 as false and a 20x as true.
+* `metadata`: The object on which to set metadata found in the response headers.  Defaults to `Hubkit`.
 * `ifNotFound`: A value to return instead of throwing an exception when the request results in a 404.
 * `onError`: A function to be called when an error occurs, either in the request itself or an
 unexpected 4xx or 5xx response.  If it's an error response, the error object will have `status`,

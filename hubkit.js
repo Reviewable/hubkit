@@ -64,7 +64,8 @@ if (typeof require !== 'undefined') {
   };
 
   Hubkit.defaults = {
-    method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3
+    method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3,
+    metadata: Hubkit
   };
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
@@ -126,26 +127,7 @@ if (typeof require !== 'undefined') {
       }
 
       function onComplete(error, res) {
-        var rateName = /^https?:\/\/[^/]+\/search\//.test(path) ? 'searchRateLimit' : 'rateLimit';
-        Hubkit[rateName] = res && res.header['x-ratelimit-limit'] &&
-          parseInt(res.header['x-ratelimit-limit'], 10);
-        Hubkit[rateName + 'Remaining'] = res && res.header['x-ratelimit-remaining'] &&
-          parseInt(res.header['x-ratelimit-remaining'], 10);
-        // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
-        // missing.
-        if (res && 'x-oauth-scopes' in res.header) {
-          var scopes = (res.header['x-oauth-scopes'] || '').split(/\s*,\s*/);
-          if (scopes.length === 1 && scopes[0] === '') {
-            Hubkit.oAuthScopes = [];
-          } else {
-            // GitHub will sometimes return duplicate scopes in the list, so uniquefy them.
-            scopes.sort();
-            Hubkit.oAuthScopes = [];
-            for (var i = 0; i < scopes.length; i++) {
-              if (i === 0 || scopes[i-1] !== scopes[i]) Hubkit.oAuthScopes.push(scopes[i]);
-            }
-          }
-        }
+        extractMetadata(path, res, options.metadata);
         if (error) {
           error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
           handleError(error);
@@ -294,6 +276,29 @@ if (typeof require !== 'undefined') {
     if (options.responseType) req.on('request', function() {
       this.xhr.responseType = options.responseType;
     });
+  }
+
+  function extractMetadata(path, res, metadata) {
+    if (!(res && metadata)) return;
+    var rateName = /^https?:\/\/[^/]+\/search\//.test(path) ? 'searchRateLimit' : 'rateLimit';
+    metadata[rateName] = res.header['x-ratelimit-limit'] &&
+      parseInt(res.header['x-ratelimit-limit'], 10);
+    metadata[rateName + 'Remaining'] = res.header['x-ratelimit-remaining'] &&
+      parseInt(res.header['x-ratelimit-remaining'], 10);
+    // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
+    // missing.
+    if ('x-oauth-scopes' in res.header) {
+      metadata.oAuthScopes = [];
+      var scopes = (res.header['x-oauth-scopes'] || '').split(/\s*,\s*/);
+      if (!(scopes.length === 1 && scopes[0] === '')) {
+        // GitHub will sometimes return duplicate scopes in the list, so uniquefy them.
+        scopes.sort();
+        metadata.oAuthScopes = [];
+        for (var i = 0; i < scopes.length; i++) {
+          if (i === 0 || scopes[i-1] !== scopes[i]) metadata.oAuthScopes.push(scopes[i]);
+        }
+      }
+    }
   }
 
   function computeCacheKey(req, options) {
