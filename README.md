@@ -46,8 +46,8 @@ co(function*() {
 ```
 
 The returned values are exactly as documented in the GitHub API, except that requests with option
-{boolean: true} will return `true` or `false` instead (sorry, no way to automate it).  Note that for
-paged responses, all pages will be concatenated together into the return value by default (see
+`{boolean: true}` will return `true` or `false` instead (sorry, no way to automate it).  Note that
+for paged responses, all pages will be concatenated together into the return value by default (see
 below).
 
 After every request, you can access `rateLimit` and `rateLimitRemaining` (or `searchRateLimit` and
