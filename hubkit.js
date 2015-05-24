@@ -1,5 +1,5 @@
 if (typeof require !== 'undefined') {
-  require('es6-promise').polyfill();
+  if (typeof Promise === 'undefined') require('es6-promise').polyfill();
   if (typeof superagent === 'undefined') superagent = require('superagent-ls');
   if (typeof LRUCache === 'undefined') LRUCache = require('lru-cache');
 }
