@@ -7,10 +7,10 @@ A simple GitHub API library for JavaScript that works in both NodeJS and the bro
 * Responses are (optionally) cached, and requests are conditional to save on bandwidth and request quota.
 Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](https://github.com/Caged/octo), and [octokit](https://github.com/philschatz/octokit.js).
 
-To enable caching, make sure that [LRUCache](https://github.com/isaacs/node-lru-cache) is loaded.
-It's installed by default for Node, but in the browser you need to load `lru-cache.js`.  Or you
-can pass any other cache instance as an option to the constructor, as long as it has `get`, `set`,
-and `del` methods.
+To enable caching, make sure that [LRUCache](https://github.com/jmendiara/serialized-lru-cache) is
+loaded. It's installed by default for Node, but in the browser you need to load `lru-cache.js`.  Or
+you can pass any other cache instance as an option to the constructor, as long as it has `get`,
+`set`, and `del` methods.
 
 A simple example:
 
@@ -68,6 +68,7 @@ objects inserted into the cache will be of the form
 `{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.
 You can use the (approximate) `size` field to help your cache determine when to evict items.  The
 default cache is set to hold ~10MB.
+* `maxItemSizeRatio`: The maximum ratio of the size of any single item to the size of the cache, to avoid blowing away the entire cache with one huge item.  The default is set to 0.1, limiting each item to at most 1/10th the max size of the cache.
 * `immutable`: If true, indicates that the return value for this call is immutable, so if it's available in the cache it can be reused without sending a request to GitHub to check freshness.
 * `method`: The HTTP method to use for the request.
 * `media`: A GitHub-specific [media type](https://developer.github.com/v3/media/) for the response

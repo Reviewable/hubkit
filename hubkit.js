@@ -1,7 +1,7 @@
 if (typeof require !== 'undefined') {
   if (typeof Promise === 'undefined') require('es6-promise').polyfill();
   if (typeof superagent === 'undefined') superagent = require('superagent-ls');
-  if (typeof LRUCache === 'undefined') LRUCache = require('lru-cache');
+  if (typeof LRUCache === 'undefined') LRUCache = require('serialized-lru-cache');
 }
 
 (function(init) {
@@ -65,7 +65,7 @@ if (typeof require !== 'undefined') {
 
   Hubkit.defaults = {
     method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3,
-    metadata: Hubkit
+    maxItemSizeRatio: 0.1, metadata: Hubkit
   };
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
@@ -196,12 +196,16 @@ if (typeof require !== 'undefined') {
             }
           }
           if (options.cache && options.method === 'GET') {
+            var size = res.text ? res.text.length : (res.body ?
+                (res.body.size || res.body.byteLength) : 1);
             if (res.status === 200 && res.header.etag) {
-              options.cache.set(cacheKey, {
-                value: result, eTag: res.header.etag, status: res.status,
-                size: res.text ? res.text.length : (res.body ?
-                  (res.body.size || res.body.byteLength) : 1)
-              });
+              if (size <= options.cache.max * options.maxItemSizeRatio) {
+                options.cache.set(cacheKey, {
+                  value: result, eTag: res.header.etag, status: res.status, size: size
+                });
+              } else {
+                options.cache.del(cacheKey);
+              }
             } else if (options.immutable) {
               options.cache.del(cacheKey);
             }
