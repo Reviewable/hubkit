@@ -63,9 +63,41 @@ if (typeof require !== 'undefined') {
     this.defaultOptions = options;
   };
 
+  Hubkit.Stats = function() {
+    this.reset();
+  };
+
+  Hubkit.Stats.prototype.reset = function() {
+    this.hits = 0;
+    this.misses = 0;
+    this.hitsSize = 0;
+    this.missesSize = 0;
+  };
+
+  Hubkit.Stats.prototype.record = function(isHit, size) {
+    size = size || 1;
+    if (isHit) {
+      this.hits++;
+      this.hitsSize += size;
+    } else {
+      this.misses++;
+      this.missesSize += size;
+    }
+  };
+
+  function computeRate(hits, misses) {
+    var total = hits + misses;
+    return total ? hits / total : 0;
+  }
+
+  Object.defineProperties(Hubkit.Stats.prototype, {
+    hitRate: {get: function() {return computeRate(this.hits, this.misses);}},
+    hitSizeRate: {get: function() {return computeRate(this.hitsSize, this.missesSize);}}
+  });
+
   Hubkit.defaults = {
     method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3,
-    maxItemSizeRatio: 0.1, metadata: Hubkit
+    maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats()
   };
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
@@ -88,6 +120,18 @@ if (typeof require !== 'undefined') {
       if (options.immutable && cachedItem) {
         // Abort is needed only in Node implementation, check for req.req vs req.xhr.
         if (req.req) req.abort();
+        if (options.stats) {
+          if (cachedItem.promise) {
+            cachedItem.promise.then(function() {
+              var entry = options.cache.get(cacheKey);
+              options.stats.record(true, entry ? entry.size : 1);
+            }).catch(function() {
+              options.stats.record(true);
+            });
+          } else {
+            options.stats.record(true, cachedItem.size);
+          }
+        }
         return cachedItem.promise || Promise.resolve(cachedItem.value);
       }
     }
@@ -103,7 +147,10 @@ if (typeof require !== 'undefined') {
       send();
 
       function handleError(error) {
-        if (options.cache && options.method === 'GET') options.cache.del(cacheKey);
+        if (options.cache && options.method === 'GET') {
+          options.cache.del(cacheKey);
+          if (options.stats) options.stats.record(false);
+        }
         var value;
         if (options.onError) value = options.onError(error);
         if (value === Hubkit.RETRY && tries < options.maxTries) {
@@ -132,11 +179,13 @@ if (typeof require !== 'undefined') {
           error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
           handleError(error);
         } else if (res.status === 304) {
+          if (options.stats) options.stats.record(true, cachedItem.size);
           resolve(cachedItem.value);
         } else if (!(res.ok || options.boolean && res.notFound && res.body &&
             res.body.message === 'Not Found')) {
-          if (options.immutable && options.cache && options.method === 'GET') {
-            options.cache.del(cacheKey);
+          if (options.cache && options.method === 'GET') {
+            if (options.immutable) options.cache.del(cacheKey);
+            if (options.stats) options.stats.record(false);
           }
           if (res.status === 404 && typeof options.ifNotFound !== 'undefined') {
             resolve(options.ifNotFound);
@@ -198,6 +247,7 @@ if (typeof require !== 'undefined') {
           if (options.cache && options.method === 'GET') {
             var size = res.text ? res.text.length : (res.body ?
                 (res.body.size || res.body.byteLength) : 1);
+            if (options.stats) options.stats.record(false, size);
             if (res.status === 200 && res.header.etag) {
               if (size <= options.cache.max * options.maxItemSizeRatio) {
                 options.cache.set(cacheKey, {

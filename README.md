@@ -66,9 +66,10 @@ in NodeJS.
 * `cache`: An object with `get`, `set`, and `del` methods to be used as a cache for responses.  The
 objects inserted into the cache will be of the form
 `{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.
-You can use the (approximate) `size` field to help your cache determine when to evict items.  The
-default cache is set to hold ~10MB.
+You can use the (approximate) `size` field to help your cache determine when to evict items, but note that it tends to underestimate the actual size size of the object by 3-4x.  The
+default cache is set to hold ~10MB of the measured bytes amount (so ~30-40MB of actual memory usage).
 * `maxItemSizeRatio`: The maximum ratio of the size of any single item to the size of the cache, to avoid blowing away the entire cache with one huge item.  The default is set to 0.1, limiting each item to at most 1/10th the max size of the cache.
+* `stats`: Reports the cache hit rate via `hitRate` (number of items hit / total attempted) and `hitSizeRate` (total size of items hit / total attempted) attributes.  You can `reset()` the stats to start counting from scratch again.  A default instance is set on `Hubkit.defaults` but you can also assign a `new Hubkit.Stats()` to a `Hubkit` instance if you prefer.
 * `immutable`: If true, indicates that the return value for this call is immutable, so if it's available in the cache it can be reused without sending a request to GitHub to check freshness.
 * `method`: The HTTP method to use for the request.
 * `media`: A GitHub-specific [media type](https://developer.github.com/v3/media/) for the response
