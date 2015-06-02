@@ -189,6 +189,8 @@ if (typeof require !== 'undefined') {
           }
           if (res.status === 404 && typeof options.ifNotFound !== 'undefined') {
             resolve(options.ifNotFound);
+          } else if (res.status === 410 && typeof options.ifGone !== 'undefined') {
+            resolve(options.ifGone);
           } else {
             var errors = '';
             if (res.body && res.body.errors) {
