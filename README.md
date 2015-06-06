@@ -4,13 +4,13 @@ hubkit
 A simple GitHub API library for JavaScript that works in both NodeJS and the browser.  Features:
 * Takes a request-level approach that naturally covers the entire GitHub v3 API.
 * All requests return promises.  (You may need to add a polyfill in the browser, depending on your target platforms.  The Node package includes a polyfill in case you're not running with `--harmony`.)
-* Responses are (optionally) cached, and requests are conditional to save on bandwidth and request quota.
+* Responses are (optionally) cached (segregated by user identity), and requests are conditional to save on bandwidth and request quota.
 Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](https://github.com/Caged/octo), and [octokit](https://github.com/philschatz/octokit.js).
 
 To enable caching, make sure that [LRUCache](https://github.com/jmendiara/serialized-lru-cache) is
 loaded. It's installed by default for Node, but in the browser you need to load `lru-cache.js`.  Or
 you can pass any other cache instance as an option to the constructor, as long as it has `get`,
-`set`, and `del` methods.
+`set`, and `del` methods.  Also, since v0.2, if the cache is enabled it respects `Cache-Control` headers on the response (that GitHub currently seems to set to 1 minute for all requests), and will return a potentially stale value from the cache unless you specify `{fresh: true}`.
 
 A simple example:
 
@@ -68,6 +68,7 @@ objects inserted into the cache will be of the form
 `{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.
 You can use the (approximate) `size` field to help your cache determine when to evict items, but note that it tends to underestimate the actual size size of the object by 3-4x.  The
 default cache is set to hold ~10MB of the measured bytes amount (so ~30-40MB of actual memory usage).
+* `fresh`: If true, force a request to be issued to the server even if a cache is in use and an unexpired value available.  This is different from turning off the cache for the request since it can still make use of ETags and get a cheap 304 response in return.
 * `maxItemSizeRatio`: The maximum ratio of the size of any single item to the size of the cache, to avoid blowing away the entire cache with one huge item.  The default is set to 0.1, limiting each item to at most 1/10th the max size of the cache.
 * `stats`: Reports the cache hit rate via `hitRate` (number of items hit / total attempted) and `hitSizeRate` (total size of items hit / total attempted) attributes.  You can `reset()` the stats to start counting from scratch again.  A default instance is set on `Hubkit.defaults` but you can also assign a `new Hubkit.Stats()` to a `Hubkit` instance if you prefer.
 * `immutable`: If true, indicates that the return value for this call is immutable, so if it's available in the cache it can be reused without sending a request to GitHub to check freshness.

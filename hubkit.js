@@ -112,12 +112,15 @@ if (typeof require !== 'undefined') {
     path = interpolatePath(path, options);
     var req = superagent(options.method, path);
     addHeaders(req, options);
-    var cachedItem = null, cacheKey;
-    if (options.cache && options.method === 'GET') {
+    var cachedItem = null, cacheKey, cacheable = options.cache && options.method === 'GET';
+    if (cacheable) {
       // Pin cached value, in case it gets evicted during the request
       cacheKey = computeCacheKey(req, options);
       cachedItem = checkCache(req, options, cacheKey);
-      if (options.immutable && cachedItem) {
+      if (cachedItem && (
+          options.immutable ||
+          !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
+      )) {
         // Abort is needed only in Node implementation, check for req.req vs req.xhr.
         if (req.req) req.abort();
         if (options.stats) {
@@ -135,19 +138,13 @@ if (typeof require !== 'undefined') {
         return cachedItem.promise || Promise.resolve(cachedItem.value);
       }
     }
-    if (!cachedItem) {
-      // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
-      // allowed by Github's cross-domain request headers.
-      // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
-      req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
-    }
 
     var requestPromise = new Promise(function(resolve, reject) {
       var result = [], tries = 0;
-      send();
+      send(options.body);
 
       function handleError(error) {
-        if (options.cache && options.method === 'GET') {
+        if (cacheable) {
           options.cache.del(cacheKey);
           if (options.stats) options.stats.record(false);
         }
@@ -157,20 +154,17 @@ if (typeof require !== 'undefined') {
           req = superagent(options.method, path);
           addHeaders(req, options);
           req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
-          send();
+          send(options.body);
           return;
         }
         if (value === undefined || value === Hubkit.RETRY) reject(error); else resolve(value);
       }
 
-      function send() {
+      function send(body) {
         tries++;
         if (options.timeout) req.timeout(options.timeout);
-        if (options.method === 'GET') {
-          req.query(options.body).end(onComplete);
-        } else {
-          req.send(options.body).end(onComplete);
-        }
+        if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
+        req.end(onComplete);
       }
 
       function onComplete(error, res) {
@@ -179,12 +173,13 @@ if (typeof require !== 'undefined') {
           error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
           handleError(error);
         } else if (res.status === 304) {
+          cachedItem.expiry = parseExpiry(res);
           if (options.stats) options.stats.record(true, cachedItem.size);
           resolve(cachedItem.value);
         } else if (!(res.ok || options.boolean && res.notFound && res.body &&
             res.body.message === 'Not Found')) {
-          if (options.cache && options.method === 'GET') {
-            if (options.immutable) options.cache.del(cacheKey);
+          if (cacheable) {
+            options.cache.del(cacheKey);
             if (options.stats) options.stats.record(false);
           }
           if (res.status === 404 && typeof options.ifNotFound !== 'undefined') {
@@ -236,8 +231,9 @@ if (typeof require !== 'undefined') {
                 req = superagent(options.method, match[1]);
                 addHeaders(req, options);
                 cachedItem = null;
+                tries = 0;
                 req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
-                req.end(onComplete);
+                send();
                 return;  // Don't resolve yet, more pages to come.
               } else {
                 result.next = function() {
@@ -246,19 +242,17 @@ if (typeof require !== 'undefined') {
               }
             }
           }
-          if (options.cache && options.method === 'GET') {
+          if (cacheable) {
             var size = res.text ? res.text.length : (res.body ?
                 (res.body.size || res.body.byteLength) : 1);
             if (options.stats) options.stats.record(false, size);
-            if (res.status === 200 && res.header.etag) {
-              if (size <= options.cache.max * options.maxItemSizeRatio) {
-                options.cache.set(cacheKey, {
-                  value: result, eTag: res.header.etag, status: res.status, size: size
-                });
-              } else {
-                options.cache.del(cacheKey);
-              }
-            } else if (options.immutable) {
+            if (res.status === 200 && (res.header.etag || res.header['cache-control']) &&
+                size <= options.cache.max * options.maxItemSizeRatio) {
+              options.cache.set(cacheKey, {
+                value: result, eTag: res.header.etag, status: res.status, size: size,
+                expiry: parseExpiry(res)
+              });
+            } else {
               options.cache.del(cacheKey);
             }
           }
@@ -267,9 +261,7 @@ if (typeof require !== 'undefined') {
       }
     });
 
-    if (options.immutable && options.method === 'GET' && options.cache) {
-      options.cache.set(cacheKey, {promise: requestPromise, size: 100});
-    }
+    if (cacheable) options.cache.set(cacheKey, {promise: requestPromise, size: 100});
     return requestPromise;
 
   };
@@ -357,10 +349,19 @@ if (typeof require !== 'undefined') {
     }
   }
 
+  function parseExpiry(res) {
+    var match = (res.header['cache-control'] || '').match(/(^|[,\s])max-age=(\d+)/);
+    if (match) return Date.now() + 1000 * parseInt(match[2], 10);
+  }
+
   function computeCacheKey(req, options) {
     var cacheKey = req.url;
-    var sortedQuery = [];
-    sortedQuery.push('per_page=' + options.perPage);
+    var sortedQuery = ['per_page=' + options.perPage];
+    if (options.token) {
+      sortedQuery.push('_token=' + options.token);
+    } else if (options.username && options.password) {
+      sortedQuery.push('_login=' + options.username + ':' + options.password);
+    }
     if (options.boolean) sortedQuery.push('_boolean=true');
     if (options.allPages) sortedQuery.push('_allPages=true');
     if (options.responseType) sortedQuery.push('_responseType=' + options.responseType);
@@ -377,7 +378,14 @@ if (typeof require !== 'undefined') {
 
   function checkCache(req, options, cacheKey) {
     var cachedItem = options.cache.get(cacheKey);
-    if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
+    if (cachedItem && cachedItem.eTag) {
+      req.set('If-None-Match', cachedItem.eTag);
+    } else {
+      // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
+      // allowed by Github's cross-domain request headers.
+      // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
+      req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
+    }
     return cachedItem;
   }
 
