@@ -97,7 +97,7 @@ if (typeof require !== 'undefined') {
 
   Hubkit.defaults = {
     method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3,
-    maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats()
+    maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats(), agent: false
   };
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
@@ -314,6 +314,7 @@ if (typeof require !== 'undefined') {
   }
 
   function addHeaders(req, options) {
+    if (req.agent) req.agent(options.agent);
     if (options.token) req.set('Authorization', 'token ' + options.token);
     if (!options.token && options.username && options.password) {
       req.auth(options.username, options.password);
