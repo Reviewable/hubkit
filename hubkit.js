@@ -104,6 +104,7 @@ if (typeof require !== 'undefined') {
       new LRUCache({max: 10000000, length: function(item) {return item.size;}});
   }
   Hubkit.RETRY = {};  // marker object
+  Hubkit.DONT_RETRY = {};  // marker object
 
   Hubkit.prototype.request = function(path, options) {
     var self = this;
@@ -143,21 +144,40 @@ if (typeof require !== 'undefined') {
       var result = [], tries = 0;
       send(options.body);
 
-      function handleError(error) {
-        if (cacheable) {
+      function handleError(error, res) {
+        if (cacheable && error.status) {
           options.cache.del(cacheKey);
           if (options.stats) options.stats.record(false);
         }
-        var value;
+        var value, retryDelay;
         if (options.onError) value = options.onError(error);
-        if (value === Hubkit.RETRY && tries < options.maxTries) {
-          req = superagent(options.method, path);
-          addHeaders(req, options);
-          req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
-          send(options.body);
-          return;
+        if (value === undefined) {
+          if (error.originalMessage === 'socket hang up') {
+            value = Hubkit.RETRY;
+            options.agent = false;
+          } else if (error.status === 403 && res.header['retry-after']) {
+            try {
+              retryDelay = parseInt(res.header['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
+              if (!options.timeout || retryDelay < options.timeout) value = Hubkit.RETRY;
+            } catch(e) {
+              // ignore, don't retry request
+            }
+          }
         }
-        if (value === undefined || value === Hubkit.RETRY) reject(error); else resolve(value);
+        if (value === Hubkit.RETRY && tries < options.maxTries) {
+          if (retryDelay) setTimeout(retry, retryDelay); else retry();
+        } else if (value === undefined || value === Hubkit.RETRY || value === Hubkit.DONT_RETRY) {
+          reject(error);
+        } else {
+          resolve(value);
+        }
+      }
+
+      function retry() {
+        req = superagent(options.method, path);
+        addHeaders(req, options);
+        cachedItem = checkCache(req, options, cacheKey);
+        send(options.body);
       }
 
       function send(body) {
@@ -170,8 +190,9 @@ if (typeof require !== 'undefined') {
       function onComplete(error, res) {
         extractMetadata(path, res, options.metadata);
         if (error) {
+          error.originalMessage = error.message;
           error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
-          handleError(error);
+          handleError(error, res);
         } else if (res.status === 304) {
           cachedItem.expiry = parseExpiry(res);
           if (options.stats) options.stats.record(true, cachedItem.size);
