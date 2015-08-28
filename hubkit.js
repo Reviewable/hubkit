@@ -152,7 +152,8 @@ if (typeof require !== 'undefined') {
         var value, retryDelay;
         if (options.onError) value = options.onError(error);
         if (value === undefined) {
-          if (error.originalMessage === 'socket hang up') {
+          if (error.originalMessage === 'socket hang up' ||
+              error.originalMessage === 'Unexpected end of input') {
             value = Hubkit.RETRY;
             options.agent = false;
           } else if (error.status === 403 && res.header['retry-after']) {
