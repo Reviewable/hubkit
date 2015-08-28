@@ -156,7 +156,7 @@ if (typeof require !== 'undefined') {
               error.originalMessage === 'Unexpected end of input') {
             value = Hubkit.RETRY;
             options.agent = false;
-          } else if (error.status === 403 && res.header['retry-after']) {
+          } else if (error.status === 403 && res && res.header['retry-after']) {
             try {
               retryDelay = parseInt(res.header['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
               if (!options.timeout || retryDelay < options.timeout) value = Hubkit.RETRY;
@@ -230,7 +230,7 @@ if (typeof require !== 'undefined') {
             statusError.method = options.method;
             statusError.path = path;
             statusError.response = res;
-            handleError(statusError);
+            handleError(statusError, res);
           }
         } else {
           if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
