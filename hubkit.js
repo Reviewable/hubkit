@@ -177,7 +177,7 @@ if (typeof require !== 'undefined') {
       function retry() {
         req = superagent(options.method, path);
         addHeaders(req, options);
-        cachedItem = checkCache(req, options, cacheKey);
+        if (cacheable) cachedItem = checkCache(req, options, cacheKey);
         send(options.body);
       }
 
@@ -347,6 +347,10 @@ if (typeof require !== 'undefined') {
     if (options.responseType) req.on('request', function() {
       this.xhr.responseType = options.responseType;
     });
+    // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
+    // allowed by Github's cross-domain request headers.
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
+    req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
   }
 
   function extractMetadata(path, res, metadata) {
@@ -403,13 +407,8 @@ if (typeof require !== 'undefined') {
     var cachedItem = options.cache.get(cacheKey);
     if (cachedItem && cachedItem.eTag) {
       req.set('If-None-Match', cachedItem.eTag);
-    } else {
-      // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
-      // allowed by Github's cross-domain request headers.
-      // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
-      req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
+      return cachedItem;
     }
-    return cachedItem;
   }
 
   return Hubkit;
