@@ -405,10 +405,8 @@ if (typeof require !== 'undefined') {
 
   function checkCache(req, options, cacheKey) {
     var cachedItem = options.cache.get(cacheKey);
-    if (cachedItem && cachedItem.eTag) {
-      req.set('If-None-Match', cachedItem.eTag);
-      return cachedItem;
-    }
+    if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
+    return cachedItem;
   }
 
   return Hubkit;
