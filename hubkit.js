@@ -148,6 +148,15 @@ if (typeof require !== 'undefined') {
           options.cache.del(cacheKey);
           if (options.stats) options.stats.record(false);
         }
+        // If the request failed due to CORS, it may be because it was both preflighted and
+        // redirected.  Attempt to recover by reissuing it as a simple request without preflight,
+        // which requires getting rid of all extraneous headers.
+        if (cacheable &&
+            /Origin is not allowed by Access-Control-Allow-Origin/.test(error.originalMessage)) {
+          cacheable = false;
+          retry();
+          return;
+        }
         var value, retryDelay;
         if (options.onError) value = options.onError(error);
         if (value === undefined) {
@@ -336,7 +345,14 @@ if (typeof require !== 'undefined') {
 
   function addHeaders(req, options) {
     if (req.agent) req.agent(options.agent);
-    if (options.token) req.set('Authorization', 'token ' + options.token);
+    if (options.token) {
+      if (typeof module === 'undefined' && (
+          options.method === 'GET' || options.method === 'HEAD')) {
+        req.query({'access_token': options.token});
+      } else {
+        req.set('Authorization', 'token ' + options.token);
+      }
+    }
     if (!options.token && options.username && options.password) {
       req.auth(options.username, options.password);
     }
@@ -347,9 +363,12 @@ if (typeof require !== 'undefined') {
       this.xhr.responseType = options.responseType;
     });
     // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
-    // allowed by Github's cross-domain request headers.
+    // allowed by Github's cross-domain request headers, and because we want to keep our requests
+    // simple to avoid CORS preflight whenever possible.
     // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
-    req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
+    if (typeof module === 'undefined') {
+      req.query({'_nocache': Math.round(Math.random() * 1000000)});
+    }
   }
 
   function extractMetadata(path, res, metadata) {
