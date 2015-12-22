@@ -7,8 +7,9 @@ A simple GitHub API library for JavaScript that works in both NodeJS and the bro
 * Responses are (optionally) cached (segregated by user identity), and requests are conditional to save on bandwidth and request quota.
 Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](https://github.com/Caged/octo), and [octokit](https://github.com/philschatz/octokit.js).
 
-To enable caching, make sure that [LRUCache](https://github.com/jmendiara/serialized-lru-cache) is
-loaded. It's installed by default for Node, but in the browser you need to load `lru-cache.js`.  Or
+To enable caching, make sure that [LRUCache](https://github.com/isaacs/node-lru-cache) is
+loaded. It's installed by default for Node, but in the browser you need to load `lru-cache.js`
+(perhaps from the [Bower-compatible variant](https://github.com/jmendiara/serialized-lru-cache)).  Or
 you can pass any other cache instance as an option to the constructor, as long as it has `get`,
 `set`, and `del` methods.  Also, since v0.2, if the cache is enabled it respects `Cache-Control` headers on the response (that GitHub currently seems to set to 1 minute for all requests), and will return a potentially stale value from the cache unless you specify `{fresh: true}`.
 

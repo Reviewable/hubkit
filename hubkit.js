@@ -1,6 +1,6 @@
 if (typeof require !== 'undefined') {
   if (typeof superagent === 'undefined') superagent = require('superagent-ls');
-  if (typeof LRUCache === 'undefined') LRUCache = require('serialized-lru-cache');
+  if (typeof LRUCache === 'undefined') LRUCache = require('lru-cache');
 }
 
 (function(init) {
