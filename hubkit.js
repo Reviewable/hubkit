@@ -324,7 +324,7 @@ if (typeof require !== 'undefined') {
     options.method = options.method.toUpperCase();
     path = interpolate(path, options);
     if (!/^http/.test(path)) path = options.host + path;
-    return encodeURI(path);
+    return path;
   }
 
   function interpolate(string, options) {
@@ -337,6 +337,13 @@ if (typeof require !== 'undefined') {
           throw new Error('Options missing variable "' + v + '" for path "' + string + '"');
         }
         value = value[parts[i]];
+      }
+      if (value) {
+        parts = value.toString().split('/');
+        for (i = 0; i < parts.length; i++) {
+          parts[i] = encodeURIComponent(parts[i]);
+        }
+        value = parts.join('/');
       }
       return value;
     });
