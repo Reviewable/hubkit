@@ -107,7 +107,6 @@ if (typeof require !== 'undefined') {
 
   Hubkit.prototype.request = function(path, options) {
     var self = this;
-    var pathPattern = path;
     options = defaults({}, options);
     defaults(options, this.defaultOptions);
     path = interpolatePath(path, options);
@@ -202,7 +201,8 @@ if (typeof require !== 'undefined') {
         if (error) {
           error.originalMessage = error.message;
           error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
-          error.fingerprint = ['Hubkit', options.method, pathPattern, error.originalMessage];
+          error.fingerprint =
+            ['Hubkit', options.method, options.pathPattern, error.originalMessage];
           handleError(error, res);
         } else if (res.status === 304) {
           cachedItem.expiry = parseExpiry(res);
@@ -240,7 +240,8 @@ if (typeof require !== 'undefined') {
             statusError.method = options.method;
             statusError.path = path;
             statusError.response = res;
-            statusError.fingerprint = ['Hubkit', options.method, pathPattern, '' + res.status];
+            statusError.fingerprint =
+              ['Hubkit', options.method, options.pathPattern, '' + res.status];
             handleError(statusError, res);
           }
         } else {
@@ -325,6 +326,7 @@ if (typeof require !== 'undefined') {
       path = a[1];
     }
     options.method = options.method.toUpperCase();
+    options.pathPattern = path;
     path = interpolate(path, options);
     if (!/^http/.test(path)) path = options.host + path;
     return path;
