@@ -107,6 +107,7 @@ if (typeof require !== 'undefined') {
 
   Hubkit.prototype.request = function(path, options) {
     var self = this;
+    var pathPattern = path;
     options = defaults({}, options);
     defaults(options, this.defaultOptions);
     path = interpolatePath(path, options);
@@ -201,6 +202,7 @@ if (typeof require !== 'undefined') {
         if (error) {
           error.originalMessage = error.message;
           error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
+          error.fingerprint = ['Hubkit', options.method, pathPattern, error.originalMessage];
           handleError(error, res);
         } else if (res.status === 304) {
           cachedItem.expiry = parseExpiry(res);
@@ -238,6 +240,7 @@ if (typeof require !== 'undefined') {
             statusError.method = options.method;
             statusError.path = path;
             statusError.response = res;
+            statusError.fingerprint = ['Hubkit', options.method, pathPattern, '' + res.status];
             handleError(statusError, res);
           }
         } else {
