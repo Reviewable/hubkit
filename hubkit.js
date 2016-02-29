@@ -96,7 +96,8 @@ if (typeof require !== 'undefined') {
 
   Hubkit.defaults = {
     method: 'get', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3,
-    maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats(), agent: false
+    maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats(), agent: false,
+    corsSuccessFlags: {}
   };
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
@@ -198,7 +199,14 @@ if (typeof require !== 'undefined') {
 
       function onComplete(error, res) {
         extractMetadata(path, res, options.metadata);
+        if (!error && options.method !== 'GET' && options.method !== 'HEAD') {
+          options.corsSuccessFlags[options.host] = true;
+        }
         if (error) {
+          if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
+              options.corsSuccessFlags[options.host]) {
+            error.message = 'Request terminated abnormally, network may be offline';
+          }
           error.originalMessage = error.message;
           error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
           error.fingerprint =
