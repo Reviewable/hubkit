@@ -199,12 +199,14 @@ if (typeof require !== 'undefined') {
 
       function onComplete(error, res) {
         extractMetadata(path, res, options.metadata);
-        if (!error && options.method !== 'GET' && options.method !== 'HEAD') {
+        if (!error && res.header['access-control-allow-origin']) {
           options.corsSuccessFlags[options.host] = true;
         }
         if (error) {
-          if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
-              options.corsSuccessFlags[options.host]) {
+          if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) && (
+                options.corsSuccessFlags[options.host] ||
+                !cacheable && (options.method === 'GET' || options.method === 'HEAD')
+          )) {
             error.message = 'Request terminated abnormally, network may be offline';
           }
           error.originalMessage = error.message;
