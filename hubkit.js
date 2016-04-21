@@ -146,7 +146,7 @@ if (typeof require !== 'undefined') {
 
       function handleError(error, res) {
         error.request = {method: req.method, url: req.url, headers: res && res.req._headers};
-        delete error.request.headers.authorization;
+        if (error.request.headers) delete error.request.headers.authorization;
         if (cacheable && error.status) {
           options.cache.del(cacheKey);
           if (options.stats) options.stats.record(false);
