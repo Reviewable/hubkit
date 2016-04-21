@@ -145,6 +145,8 @@ if (typeof require !== 'undefined') {
       send(options.body);
 
       function handleError(error, res) {
+        error.request = {method: req.method, url: req.url, headers: res.req._headers};
+        delete error.request.headers.authorization;
         if (cacheable && error.status) {
           options.cache.del(cacheKey);
           if (options.stats) options.stats.record(false);
