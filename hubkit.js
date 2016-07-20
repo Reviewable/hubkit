@@ -376,9 +376,10 @@ if (typeof require !== 'undefined') {
       } else {
         req.set('Authorization', 'token ' + options.token);
       }
-    }
-    if (!options.token && options.username && options.password) {
+    } else if (options.username && options.password) {
       req.auth(options.username, options.password);
+    } else if (options.clientId && options.clientSecret) {
+      req.query({'client_id': options.clientId, 'client_secret': options.clientSecret});
     }
     if (options.userAgent) req.set('User-Agent', options.userAgent);
     if (options.media) req.accept('application/vnd.github.' + options.media);

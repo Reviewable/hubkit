@@ -58,8 +58,9 @@ object (see below) or on `Hubkit` if you didn't set one.
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
 include:
-* `token`: String token to use for authentication; takes precedence over username and password.
-* `username` and `password`: For basic authentication.
+* `token`: String token to use for authentication; takes precedence over other auth methods.
+* `username` and `password`: For basic authentication; takes precedence over app-based authentication.
+* `clientId` and `clientSecret`: For app-based anonymous authentication (increased API quotas without impersonating a user).
 * `userAgent`: The user-agent to present in requests.  Uses the browser's user agent, or `Hubkit`
 in NodeJS.
 * `host`: The hostname to prepend to all request paths; defaults to `https://api.github.com`.
