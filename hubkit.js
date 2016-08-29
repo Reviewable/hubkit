@@ -160,7 +160,7 @@ if (typeof require !== 'undefined') {
           retry();
           return;
         }
-        var value, retryDelay;
+        var value;
         if (options.onError) value = options.onError(error);
         if (value === undefined) {
           if (error.originalMessage === 'socket hang up' ||
@@ -169,15 +169,16 @@ if (typeof require !== 'undefined') {
             options.agent = false;
           } else if (error.status === 403 && res && res.header['retry-after']) {
             try {
-              retryDelay = parseInt(res.header['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
-              if (!options.timeout || retryDelay < options.timeout) value = Hubkit.RETRY;
+              error.retryDelay =
+                parseInt(res.header['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
+              if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
             } catch(e) {
               // ignore, don't retry request
             }
           }
         }
         if (value === Hubkit.RETRY && tries < options.maxTries) {
-          if (retryDelay) setTimeout(retry, retryDelay); else retry();
+          if (error.retryDelay) setTimeout(retry, error.retryDelay); else retry();
         } else if (value === undefined || value === Hubkit.RETRY || value === Hubkit.DONT_RETRY) {
           reject(error);
         } else {
