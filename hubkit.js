@@ -142,7 +142,7 @@ if (typeof require !== 'undefined') {
 
     var requestPromise = new Promise(function(resolve, reject) {
       var result = [], tries = 0;
-      send(options.body);
+      send(options.body, 'initial');
 
       function handleError(error, res) {
         error.request = {method: req.method, url: req.url, headers: res && res.req._headers};
@@ -190,14 +190,25 @@ if (typeof require !== 'undefined') {
         req = superagent(options.method, path);
         addHeaders(req, options);
         if (cacheable) cachedItem = checkCache(req, options, cacheKey);
-        send(options.body);
+        send(options.body, 'retry');
       }
 
-      function send(body) {
+      function send(body, cause) {
         tries++;
-        if (options.timeout) req.timeout(options.timeout);
-        if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
-        req.end(onComplete);
+        var promise;
+        if (options.onSend) {
+          promise = Promise.resolve(options.onSend(cause)).then(function(timeout) {
+            timeout = timeout || options.timeout;
+            if (timeout) req.timeout(timeout);
+          });
+        } else {
+          if (options.timeout) req.timeout(options.timeout);
+          promise = Promise.resolve();
+        }
+        promise.then(function() {
+          if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
+          req.end(onComplete);
+        });
       }
 
       function onComplete(error, res) {
@@ -280,7 +291,7 @@ if (typeof require !== 'undefined') {
                 cachedItem = null;
                 tries = 0;
                 req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
-                send();
+                send(null, 'page');
                 return;  // Don't resolve yet, more pages to come.
               } else {
                 result.next = function() {
