@@ -111,19 +111,16 @@ if (typeof require !== 'undefined') {
     options = defaults({}, options);
     defaults(options, this.defaultOptions);
     path = interpolatePath(path, options);
-    var req = superagent(options.method, path);
-    addHeaders(req, options);
+    var req;
     var cachedItem = null, cacheKey, cacheable = options.cache && options.method === 'GET';
     if (cacheable) {
       // Pin cached value, in case it gets evicted during the request
-      cacheKey = computeCacheKey(req, options);
-      cachedItem = checkCache(req, options, cacheKey);
+      cacheKey = computeCacheKey(path, options);
+      cachedItem = checkCache(options, cacheKey);
       if (cachedItem && (
           options.immutable ||
           !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
       )) {
-        // Abort is needed only in Node implementation, check for req.req vs req.xhr.
-        if (req.req) req.abort();
         if (options.stats) {
           if (cachedItem.promise) {
             cachedItem.promise.then(function() {
@@ -187,25 +184,17 @@ if (typeof require !== 'undefined') {
       }
 
       function retry() {
-        req = superagent(options.method, path);
-        addHeaders(req, options);
-        if (cacheable) cachedItem = checkCache(req, options, cacheKey);
+        if (cacheable) cachedItem = checkCache(options, cacheKey);
         send(options.body, 'retry');
       }
 
       function send(body, cause) {
         tries++;
-        var promise;
-        if (options.onSend) {
-          promise = Promise.resolve(options.onSend(cause)).then(function(timeout) {
-            timeout = timeout || options.timeout;
-            if (timeout) req.timeout(timeout);
-          });
-        } else {
-          if (options.timeout) req.timeout(options.timeout);
-          promise = Promise.resolve();
-        }
-        promise.then(function() {
+        Promise.resolve(options.onSend && options.onSend(cause)).then(function(timeout) {
+          timeout = timeout || options.timeout;
+          req = superagent(options.method, path);
+          addHeaders(req, options, cachedItem);
+          if (timeout) req.timeout(timeout);
           if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
           req.end(onComplete);
         });
@@ -286,8 +275,7 @@ if (typeof require !== 'undefined') {
             var match = /<(.+?)>;\s*rel="next"/.exec(res.header.link);
             if (match) {
               if (options.allPages) {
-                req = superagent(options.method, match[1]);
-                addHeaders(req, options);
+                path = match[1];
                 cachedItem = null;
                 tries = 0;
                 send(null, 'page');
@@ -378,7 +366,8 @@ if (typeof require !== 'undefined') {
     return string;
   }
 
-  function addHeaders(req, options) {
+  function addHeaders(req, options, cachedItem) {
+    if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
     if (req.agent) req.agent(options.agent);
     if (options.token) {
       if (typeof module === 'undefined' && (
@@ -435,8 +424,8 @@ if (typeof require !== 'undefined') {
     if (match) return Date.now() + 1000 * parseInt(match[2], 10);
   }
 
-  function computeCacheKey(req, options) {
-    var cacheKey = req.url;
+  function computeCacheKey(url, options) {
+    var cacheKey = url;
     var sortedQuery = ['per_page=' + options.perPage];
     if (options.token) {
       sortedQuery.push('_token=' + options.token);
@@ -457,10 +446,8 @@ if (typeof require !== 'undefined') {
     return cacheKey;
   }
 
-  function checkCache(req, options, cacheKey) {
-    var cachedItem = options.cache.get(cacheKey);
-    if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
-    return cachedItem;
+  function checkCache(options, cacheKey) {
+    return options.cache.get(cacheKey);
   }
 
   return Hubkit;
