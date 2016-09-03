@@ -142,7 +142,7 @@ if (typeof require !== 'undefined') {
 
     var requestPromise = new Promise(function(resolve, reject) {
       var result = [], tries = 0;
-      send(options.body, 'initial');
+      send(options.body, options._cause || 'initial');
 
       function handleError(error, res) {
         error.request = {method: req.method, url: req.url, headers: res && res.req._headers};
@@ -290,12 +290,11 @@ if (typeof require !== 'undefined') {
                 addHeaders(req, options);
                 cachedItem = null;
                 tries = 0;
-                req.set('If-Modified-Since', 'Sat, 1 Jan 2000 00:00:00 GMT');
                 send(null, 'page');
                 return;  // Don't resolve yet, more pages to come.
               } else {
                 result.next = function() {
-                  return self.request(match[1], options);
+                  return self.request(match[1], defaults({_cause: 'page'}, options));
                 };
               }
             }
