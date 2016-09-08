@@ -274,6 +274,11 @@ if (typeof require !== 'undefined') {
           if (res.header.link) {
             var match = /<(.+?)>;\s*rel="next"/.exec(res.header.link);
             if (match) {
+              if (!Array.isArray(result)) {
+                throw new Error(
+                  'Hubkit error on ' + options.method + ' ' + path + ': ' +
+                  'paginated response for result of non-array type ' + typeof result);
+              }
               if (options.allPages) {
                 path = match[1];
                 cachedItem = null;
