@@ -201,8 +201,13 @@ if (typeof require !== 'undefined') {
         });
       }
 
-      function formatError(origin, message) {
-        return origin + ' error on ' + options.method + ' ' + path.replace(/\?.*/, '') + ': ' +
+      function formatError(origin, status, message) {
+        if (!message) {
+          message = status;
+          status = null;
+        }
+        var prefix = origin + ' error' + (status ? ' ' + status : '');
+        return prefix + ' on ' + options.method + ' ' + path.replace(/\?.*/, '') + ': ' +
           message;
       }
 
@@ -252,7 +257,7 @@ if (typeof require !== 'undefined') {
               errors = ' (' + errors.join(', ') + ')';
             }
             var statusError = new Error(
-              formatError('GitHub', (res.body && res.body.message) + errors)
+              formatError('GitHub', res.status, (res.body && res.body.message) + errors)
             );
             statusError.status = res.status;
             statusError.method = options.method;
