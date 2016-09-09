@@ -138,7 +138,7 @@ if (typeof require !== 'undefined') {
     }
 
     var requestPromise = new Promise(function(resolve, reject) {
-      var result = [], tries = 0;
+      var result, tries = 0;
       send(options.body, options._cause || 'initial');
 
       function handleError(error, res) {
@@ -194,10 +194,16 @@ if (typeof require !== 'undefined') {
           timeout = timeout || options.timeout;
           req = superagent(options.method, path);
           addHeaders(req, options, cachedItem);
+          if (cause === 'page') req._query = [];
           if (timeout) req.timeout(timeout);
           if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
           req.end(onComplete);
         });
+      }
+
+      function formatError(origin, message) {
+        return origin + ' error on ' + options.method + ' ' + path.replace(/\?.*/, '') + ': ' +
+          message;
       }
 
       function onComplete(error, res) {
@@ -213,7 +219,7 @@ if (typeof require !== 'undefined') {
             error.message = 'Request terminated abnormally, network may be offline';
           }
           error.originalMessage = error.message;
-          error.message = 'HubKit error on ' + options.method + ' ' + path + ': ' + error.message;
+          error.message = formatError('Hubkit', error.message);
           error.fingerprint =
             ['Hubkit', options.method, options.pathPattern, error.originalMessage];
           handleError(error, res);
@@ -246,8 +252,7 @@ if (typeof require !== 'undefined') {
               errors = ' (' + errors.join(', ') + ')';
             }
             var statusError = new Error(
-              'GitHub error ' + res.status + ' on ' + options.method + ' ' + path + ': ' +
-              (res.body && res.body.message) + errors
+              formatError('GitHub', (res.body && res.body.message) + errors)
             );
             statusError.status = res.status;
             statusError.method = options.method;
@@ -258,53 +263,51 @@ if (typeof require !== 'undefined') {
             handleError(statusError, res);
           }
         } else {
+          var nextUrl;
+          if (res.header.link) {
+            var match = /<(.+?)>;\s*rel="next"/.exec(res.header.link);
+            nextUrl = match && match[1];
+            if (nextUrl && !(options.method == 'GET' || options.method === 'HEAD')) {
+              throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
+            }
+          }
           if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
             res.body = JSON.parse(res.text);
           }
-          if (res.body && Array.isArray(res.body)) {
-            // Append to current result in case we're paging through.
-            result.push.apply(result, res.body);
-          } else if (options.boolean) {
-            result = !!res.noContent;
-          } else {
-            result = (options.responseType ||
-                      res.body && typeof res.body === 'object' && Object.keys(res.body).length) ?
-              res.body : res.text;
-          }
-          if (res.header.link) {
-            var match = /<(.+?)>;\s*rel="next"/.exec(res.header.link);
-            if (match) {
-              if (typeof result !== 'object') {
-                throw new Error(
-                  'Hubkit error on ' + options.method + ' ' + path + ': ' +
-                  'paginated response for result of type ' + typeof result);
-              }
-              if (!(options.method == 'GET' || options.method === 'HEAD')) {
-                throw new Error(
-                  'Hubkit error on ' + options.method + ' ' + path + ': ' +
-                  'paginated response for non-idempotent method');
-              }
-              var queries = {}, nextPath = match[1];
-              nextPath = nextPath.replace(/\?.*/, function(queryString) {
-                queryString.slice(1).split('&').forEach(function(pair) {
-                  var parts = pair.split('=');
-                  queries[parts[0]] = parts[1];
-                });
-                return '';
-              });
-              defaults(queries, options.body || {});
+          if (Array.isArray(res.body) || Array.isArray(res.body.items)) {
+            if (!result) {
+              result = res.body;
+            } else if (Array.isArray(res.body) && Array.isArray(result)) {
+              result = result.concat(res.body);
+            } else if (Array.isArray(res.body.items) && Array.isArray(result.items)) {
+              result.items = result.items.concat(res.body.items);
+            } else {
+              throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
+            }
+            if (nextUrl) {
               if (options.allPages) {
                 cachedItem = null;
                 tries = 0;
-                path = nextPath;
-                options.body = queries;
+                path = nextUrl;
                 send(null, 'page');
                 return;  // Don't resolve yet, more pages to come.
               } else {
                 result.next = function() {
-                  return self.request(nextPath, defaults({_cause: 'page', body: queries}, options));
+                  return self.request(nextUrl, defaults({_cause: 'page'}, options));
                 };
               }
+            }
+          } else {
+            if (nextUrl || result) {
+              throw new Error(formatError(
+                'Hubkit', 'unable to find array in paginated response'));
+            }
+            if (options.boolean) {
+              result = !!res.noContent;
+            } else {
+              result = (options.responseType ||
+                        res.body && typeof res.body === 'object' && Object.keys(res.body).length) ?
+                res.body : res.text;
             }
           }
           if (cacheable) {
