@@ -274,7 +274,7 @@ if (typeof require !== 'undefined') {
           if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
             res.body = JSON.parse(res.text);
           }
-          if (Array.isArray(res.body) || Array.isArray(res.body.items)) {
+          if (res.body && (Array.isArray(res.body) || Array.isArray(res.body.items))) {
             if (!result) {
               result = res.body;
             } else if (Array.isArray(res.body) && Array.isArray(result)) {
