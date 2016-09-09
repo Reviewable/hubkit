@@ -279,15 +279,30 @@ if (typeof require !== 'undefined') {
                   'Hubkit error on ' + options.method + ' ' + path + ': ' +
                   'paginated response for result of non-array type ' + typeof result);
               }
+              if (!(options.method == 'GET' || options.method === 'HEAD')) {
+                throw new Error(
+                  'Hubkit error on ' + options.method + ' ' + path + ': ' +
+                  'paginated response for non-idempotent method');
+              }
+              var queries = {}, nextPath = match[1];
+              nextPath = nextPath.replace(/\?.*/, function(queryString) {
+                queryString.slice(1).split('&').forEach(function(pair) {
+                  var parts = pair.split('=');
+                  queries[parts[0]] = parts[1];
+                });
+                return '';
+              });
+              defaults(queries, options.body || {});
               if (options.allPages) {
-                path = match[1];
                 cachedItem = null;
                 tries = 0;
+                path = nextPath;
+                options.body = queries;
                 send(null, 'page');
                 return;  // Don't resolve yet, more pages to come.
               } else {
                 result.next = function() {
-                  return self.request(match[1], defaults({_cause: 'page'}, options));
+                  return self.request(nextPath, defaults({_cause: 'page', body: queries}, options));
                 };
               }
             }
