@@ -198,6 +198,8 @@ if (typeof require !== 'undefined') {
           if (timeout) req.timeout(timeout);
           if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
           req.end(onComplete);
+        }).catch(function(error) {
+          reject(error);
         });
       }
 
