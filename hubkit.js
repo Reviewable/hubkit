@@ -1,5 +1,5 @@
 if (typeof require !== 'undefined') {
-  if (typeof superagent === 'undefined') superagent = require('superagent-ls');
+  if (typeof superagent === 'undefined') superagent = require('superagent');
   if (typeof LRUCache === 'undefined') LRUCache = require('lru-cache');
 }
 
@@ -214,6 +214,10 @@ if (typeof require !== 'undefined') {
       }
 
       function onComplete(error, res) {
+        if (error && error.response) {
+          res = error.response;
+          error = null;
+        }
         extractMetadata(path, res, options.metadata);
         if (!error && res.header['access-control-allow-origin']) {
           options.corsSuccessFlags[options.host] = true;

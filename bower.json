@@ -1,6 +1,6 @@
 {
   "name": "hubkit",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "homepage": "https://github.com/pkaminski/hubkit",
   "authors": [
     "Piotr Kaminski <piotr@ideanest.com>"
@@ -21,6 +21,6 @@
     "tests"
   ],
   "dependencies": {
-    "superagent": "pkaminski/superagent#master"
+    "superagent": "2.x"
   }
 }
