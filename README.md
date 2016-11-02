@@ -3,15 +3,21 @@ hubkit
 
 A simple GitHub API library for JavaScript that works in both NodeJS and the browser.  Features:
 * Takes a request-level approach that naturally covers the entire GitHub v3 API.
-* All requests return promises.  (You may need to add a polyfill in the browser, depending on your target platforms.  The Node package includes a polyfill in case you're not running with `--harmony`.)
+* All requests return promises.  (You may need to add a polyfill in the browser, depending on your target platforms.)
 * Responses are (optionally) cached (segregated by user identity), and requests are conditional to save on bandwidth and request quota.
 Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](https://github.com/Caged/octo), and [octokit](https://github.com/philschatz/octokit.js).
+
+#### Integration and dependencies
 
 To enable caching, make sure that [LRUCache](https://github.com/isaacs/node-lru-cache) is
 loaded. It's installed by default for Node, but in the browser you need to load `lru-cache.js`
 (perhaps from the [Bower-compatible variant](https://github.com/jmendiara/serialized-lru-cache)).  Or
 you can pass any other cache instance as an option to the constructor, as long as it has `get`,
 `set`, and `del` methods.  Also, since v0.2, if the cache is enabled it respects `Cache-Control` headers on the response (that GitHub currently seems to set to 1 minute for all requests), and will return a potentially stale value from the cache unless you specify `{fresh: true}`.
+
+If you're fetching Hubkit via Bower, note that the `superagent` dependency _does not ship with browser-ready code_.  You'll need to make a dist build yourself via Browserify.  Ironically, the `npm` package for `superagent` does include browser-ready code.
+
+#### Usage
 
 A simple example:
 
@@ -55,6 +61,8 @@ After every request, you can access `rateLimit` and `rateLimitRemaining` (or `se
 `searchRateLimitRemaining` if it's a search request) for the latest information on your GitHub
 quotas, and `oAuthScopes` to see what scopes your authorization entitles you to, on your `metadata`
 object (see below) or on `Hubkit` if you didn't set one.
+
+#### Options reference
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
 include:

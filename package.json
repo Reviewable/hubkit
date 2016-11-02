@@ -1,6 +1,6 @@
 {
   "name": "hubkit",
-  "version": "0.3.22",
+  "version": "0.4.0",
   "description": "GitHub API library for JavaScript, promise-based, for both NodeJS and the browser",
   "main": "index.js",
   "scripts": {
@@ -22,7 +22,7 @@
   },
   "homepage": "https://github.com/pkaminski/hubkit",
   "engines": {
-    "node": ">=0.12"
+    "node": ">=4.0"
   },
   "dependencies": {
     "lru-cache": "^4.0.0",
