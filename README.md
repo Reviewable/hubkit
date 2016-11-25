@@ -9,11 +9,13 @@ Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](http
 
 #### Integration and dependencies
 
+You need to ensure that an ES2015-compatible `Promise` class is defined.
+
 To enable caching, make sure that [LRUCache](https://github.com/isaacs/node-lru-cache) is
 loaded. It's installed by default for Node, but in the browser you need to load `lru-cache.js`
 (perhaps from the [Bower-compatible variant](https://github.com/jmendiara/serialized-lru-cache)).  Or
 you can pass any other cache instance as an option to the constructor, as long as it has `get`,
-`set`, and `del` methods.  Also, since v0.2, if the cache is enabled it respects `Cache-Control` headers on the response (that GitHub currently seems to set to 1 minute for all requests), and will return a potentially stale value from the cache unless you specify `{fresh: true}`.
+`set`, and `del` methods.  If the cache is enabled Hubkit respects `Cache-Control` headers on the response (that GitHub currently seems to set to 1 minute for all requests), and will return a potentially stale value from the cache unless you specify `{fresh: true}`.
 
 If you're fetching Hubkit via Bower, note that the `superagent` dependency _does not ship with browser-ready code_.  You'll need to make a dist build yourself via Browserify.  Ironically, the `npm` package for `superagent` does include browser-ready code.
 

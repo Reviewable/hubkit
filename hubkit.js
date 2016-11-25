@@ -7,49 +7,18 @@ if (typeof require !== 'undefined') {
   'use strict';
   var Hubkit = init();
   if (typeof angular !== 'undefined') {
-    var glob = this;
-    angular.module('hubkit', []).factory('Hubkit', ['$q', '$rootScope', function($q, $rootScope) {
-      glob.Promise = function(fn) {
-        var deferred = $q.defer();
-        fn(
-          function(value) {deferred.resolve(value);},
-          function(reason) {deferred.reject(reason);}
-        );
-        return deferred.promise;
-      };
-
-      glob.Promise.all = $q.all.bind($q);
-      glob.Promise.reject = $q.reject.bind($q);
-      glob.Promise.resolve = $q.when.bind($q);
-
-      glob.Promise.race = function(promises) {
-        var promiseMgr = $q.defer();
-        for(var i = 0; i < promises.length; i++) {
-          promises[i].then(function(result) {
-            if (promiseMgr) {
-              promiseMgr.resolve(result);
-              promiseMgr = null;
-            }
-          });
-          promises[i].catch(function(result) {
-            if (promiseMgr) {
-              promiseMgr.reject(result);
-              promiseMgr = null;
-            }
-          });
-        }
-        return promiseMgr.promise;
-      };
-
-      return Hubkit;
-    }]);
+    angular.module('hubkit', []).constant('Hubkit', Hubkit);
   } else if (typeof module !== 'undefined') {
     module.exports = Hubkit;
+  } else if (typeof self !== 'undefined') {
+    self.Hubkit = Hubkit;
+  } else if (typeof window !== 'undefined') {
+    window.Hubkit = Hubkit;
   } else {
-    this.Hubkit = Hubkit;
+    throw new Error('Unable to install Hubkit - no recognizable global object found');
   }
   superagent.parse['text/plain'] = function(o) {return o;};
-}).call(this, function() {
+})(function() {
   'use strict';
 
   var Hubkit = function(options) {
