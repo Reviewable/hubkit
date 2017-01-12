@@ -163,7 +163,11 @@ if (typeof require !== 'undefined') {
           timeout = timeout || options.timeout;
           req = superagent(options.method, path);
           addHeaders(req, options, cachedItem);
-          if (cause === 'page') req._query = [];
+          // If we're paging through a query, the path contains the full query string already so we
+          // need to wipe out any additional query params inserted by addHeaders above.  Also, if we
+          // retry a page query the cause will become 'retry', so explicitly check options._cause as
+          // well.
+          if (cause === 'page' || options._cause === 'page') req._query = [];
           if (timeout) req.timeout(timeout);
           if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
           req.end(onComplete);
@@ -269,11 +273,13 @@ if (typeof require !== 'undefined') {
                 cachedItem = null;
                 tries = 0;
                 path = nextUrl;
+                options._cause = 'page';
+                options.body = null;
                 send(null, 'page');
                 return;  // Don't resolve yet, more pages to come.
               } else {
                 result.next = function() {
-                  return self.request(nextUrl, defaults({_cause: 'page'}, options));
+                  return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
                 };
               }
             }
