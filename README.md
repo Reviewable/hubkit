@@ -1,6 +1,8 @@
 hubkit
 ======
 
+[![Project Status: Active - The project has reached a stable, usable state and is being actively developed.](http://www.repostatus.org/badges/latest/active.svg)](http://www.repostatus.org/#active)
+
 A simple GitHub API library for JavaScript that works in both NodeJS and the browser.  Features:
 * Takes a request-level approach that naturally covers the entire GitHub v3 API.
 * All requests return promises.  (You may need to add a polyfill in the browser, depending on your target platforms.)
