@@ -129,7 +129,11 @@ if (typeof require !== 'undefined') {
         var value;
         if (options.onError) value = options.onError(error);
         if (value === undefined) {
-          if (error.originalMessage === 'socket hang up' ||
+          if ([
+                'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EADDRINFO', 'ESOCKETTIMEDOUT'
+              ].indexOf(error.code) >= 0 ||
+              [500, 502, 503, 504].indexOf(error.status) >= 0 ||
+              error.originalMessage === 'socket hang up' ||
               error.originalMessage === 'Unexpected end of input') {
             value = Hubkit.RETRY;
             options.agent = false;
