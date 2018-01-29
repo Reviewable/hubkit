@@ -262,7 +262,55 @@ if (typeof require !== 'undefined') {
           if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
             res.body = JSON.parse(res.text);
           }
-          if (res.body && (Array.isArray(res.body) || Array.isArray(res.body.items))) {
+          if (/^https?:\/\/[^/]+\/graphql/.test(path)) {
+            var data = res.body.data;
+            var keys = Object.keys(data);
+            var rootKey = keys.length === 1 ? keys[0] : undefined;
+            var root = data[rootKey];
+            var paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
+              /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
+            if (result && !(paginated && result.data[rootKey])) {
+              throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
+            }
+            if (paginated) {
+              var endCursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
+              if (!result) {
+                result = res.body;
+                delete root.pageInfo;
+              } else {
+                var resultRoot = result.data[rootKey];
+                resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
+                for (var key in root) {
+                  if (!root.hasOwnProperty(key) || key === 'nodes' || key === 'pageInfo') continue;
+                  resultRoot[key] = root[key];
+                }
+              }
+              if (endCursor) {
+                if (options.allPages) {
+                  cachedItem = null;
+                  tries = 0;
+                  options._cause = 'page';
+                  options.body.variables = options.body.variables || {};
+                  options.body.variables.after = endCursor;
+                  send(options.body, 'page');
+                  return;  // Don't resolve yet, more pages to come
+                } else {
+                  result.next = function() {
+                    return self.request(
+                      path,
+                      defaults({
+                        _cause: 'page', body: _.defaults({
+                          variables: _.defaults({
+                            after: endCursor
+                          }, options.body.variables)
+                        }, options.body)
+                      }, options)
+                    );
+                  }
+                }
+              }
+            }
+          } else if (res.body && (Array.isArray(res.body) || Array.isArray(res.body.items))) {
             if (!result) {
               result = res.body;
             } else if (Array.isArray(res.body) && Array.isArray(result)) {
@@ -322,6 +370,15 @@ if (typeof require !== 'undefined') {
     if (cacheable) options.cache.set(cacheKey, {promise: requestPromise, size: 100});
     return requestPromise;
 
+  };
+
+  Hubkit.prototype.graph = function(query, options) {
+    var postOptions = defaults({body: {query: query}}, options);
+    if (options.variables) {
+      postOptions.body.variables = options.variables;
+      delete postOptions.variables;
+    }
+    return this.request('POST /graphql', postOptions);
   };
 
   function defaults(o1, o2) {
@@ -411,7 +468,8 @@ if (typeof require !== 'undefined') {
 
   function extractMetadata(path, res, metadata) {
     if (!(res && metadata)) return;
-    var rateName = /^https?:\/\/[^/]+\/search\//.test(path) ? 'searchRateLimit' : 'rateLimit';
+    var rateName = /^https?:\/\/[^/]+\/search\//.test(path) ? 'searchRateLimit' :
+      (/^https?:\/\/[^/]+\/graphql/.test(path) ? 'graphRateLimit' : 'rateLimit');
     metadata[rateName] = res.header['x-ratelimit-limit'] &&
       parseInt(res.header['x-ratelimit-limit'], 10);
     metadata[rateName + 'Remaining'] = res.header['x-ratelimit-remaining'] &&

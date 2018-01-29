@@ -5,6 +5,7 @@ hubkit
 
 A simple GitHub API library for JavaScript that works in both NodeJS and the browser.  Features:
 * Takes a request-level approach that naturally covers the entire GitHub v3 API.
+* Supports the GraphQL v4 API.
 * All requests return promises.  (You may need to add a polyfill in the browser, depending on your target platforms.)
 * Responses are (optionally) cached (segregated by user identity), and requests are conditional to save on bandwidth and request quota.
 Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](https://github.com/Caged/octo), and [octokit](https://github.com/philschatz/octokit.js).
@@ -23,7 +24,7 @@ If you're fetching Hubkit via Bower, note that the `superagent` dependency _does
 
 #### Usage
 
-A simple example:
+A simple REST example:
 
 ```javascript
 var gh = new Hubkit({
@@ -36,11 +37,30 @@ gh.request('GET /repos/:owner/:repo/git/commits/:sha', {sha: '09876abc'}).then(c
 gh.request('POST /repose/{owner}/{repo}/pulls', {body: {title: 'foo', head: 'bar', base: 'master'}});
 ```
 
-You issue requests exactly as documented in [GitHub's API](https://developer.github.com/v3/).  Path
-segments of the form `:foo` or `{foo}` are interpolated from the options object passed as the second
-argument and defaulting to the options object passed to the constructor.  The method can be
-specified either together with the path, or as a `{method: 'GET'}` option (the inline one takes
-precedence, and `GET` is the default if nothing else is found).
+And one for GraphQL:
+
+```javascript
+// initialize gh as above
+gh.graph(```
+  query ($after: String) {
+    search (type: ISSUE, first: 10, after: $after, query: `type: pr`) {
+      pageInfo {hasNextPage, endCursor},
+      nodes {
+        ... on PullRequest {
+          number, title
+        }
+      }
+    }
+  }
+  ```);
+```
+
+You issue requests exactly as documented in GitHub's [REST API](https://developer.github.com/v3/) or
+[GraphQL API](https://developer.github.com/v4/).  For REST, path segments of the form `:foo` or
+`{foo}` are interpolated from the options object passed as the second argument and defaulting to the
+options object passed to the constructor.  The method can be specified either together with the path,
+or as a `{method: 'GET'}` option (the inline one takes precedence, and `GET` is the default if
+nothing else is found).
 
 There are two ways to authenticate:  either pass a `token` to the options, or both a `username` and
 `password`.  Unauthenticated requests are fine too, of course.
@@ -62,7 +82,8 @@ for paged responses, all pages will be concatenated together into the return val
 below).
 
 After every request, you can access `rateLimit` and `rateLimitRemaining` (or `searchRateLimit` and
-`searchRateLimitRemaining` if it's a search request) for the latest information on your GitHub
+`searchRateLimitRemaining` if it's a search request, or `graphRateLimit` and
+`graphRateLimitRemaining` if it's a GraphQL query) for the latest information on your GitHub
 quotas, and `oAuthScopes` to see what scopes your authorization entitles you to, on your `metadata`
 object (see below) or on `Hubkit` if you didn't set one.
 
@@ -94,12 +115,13 @@ content.  Valid values are:
   * for blobs: `json` (default), `raw`
   * for commits, etc.: `diff`, `patch`
 * `body`: The contents of the request to send, typically a JSON-friendly object.
+* `variables`: For GraphQL queries, variables to pass to the server along with the query.
 * `responseType`: The XHR2 response type if you want to receive raw binary data; one of `text`, `arraybuffer`, `blob`, or `document`.  Only useful when fetching file blobs.
 * `perPage`: The number of items to return per page of response.  Defaults to 100.
 * `allPages`: Whether to automatically fetch all pages by following the `next` links and concatenate
 the results before returning them.  Defaults to true.  If set to false and a result has more pages,
 you'll find a `next()` function on the result that you can call to get a promise with the next page
-of items.
+of items.  This also works for GraphQL queries, as long as your query has a `$after: String` parameter defined, and the results have a single top-level key with `pageInfo {hasNextPage, endCursor}` and `nodes` children.
 * `boolean`: If true, interprets a 404 as false and a 20x as true.
 * `metadata`: The object on which to set metadata found in the response headers.  Defaults to `Hubkit`.
 * `ifNotFound`: A value to return instead of throwing an exception when the request results in a 404.
