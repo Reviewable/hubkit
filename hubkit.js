@@ -253,7 +253,7 @@ if (typeof require !== 'undefined') {
         } else {
           var nextUrl;
           if (res.header.link) {
-            var match = /<(.+?)>;\s*rel="next"/.exec(res.header.link);
+            var match = /<([^>]+?)>;\s*rel="next"/.exec(res.header.link);
             nextUrl = match && match[1];
             if (nextUrl && !(options.method == 'GET' || options.method === 'HEAD')) {
               throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
