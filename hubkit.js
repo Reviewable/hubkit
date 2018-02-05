@@ -264,7 +264,7 @@ if (typeof require !== 'undefined') {
           }
           if (/^https?:\/\/[^/]+\/graphql/.test(path)) {
             var data = res.body.data;
-            var keys = Object.keys(data);
+            var keys = data ? Object.keys(data) : [];
             var rootKey = keys.length === 1 ? keys[0] : undefined;
             var root = data[rootKey];
             var paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
