@@ -266,7 +266,7 @@ if (typeof require !== 'undefined') {
             var data = res.body.data;
             var keys = data ? Object.keys(data) : [];
             var rootKey = keys.length === 1 ? keys[0] : undefined;
-            var root = data[rootKey];
+            var root = data && data[rootKey];
             var paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
               /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
             if (result && !(paginated && result.data[rootKey])) {
