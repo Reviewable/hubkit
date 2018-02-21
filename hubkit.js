@@ -154,6 +154,7 @@ if (typeof require !== 'undefined') {
             } catch (e) {
               // ignore, don't retry request
             }
+          }
         }
         if (value === Hubkit.RETRY && tries < options.maxTries) {
           if (error.retryDelay) setTimeout(retry, error.retryDelay); else retry();
