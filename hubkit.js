@@ -142,10 +142,18 @@ if (typeof require !== 'undefined') {
               error.retryDelay =
                 parseInt(res.header['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
               if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-            } catch(e) {
+            } catch (e) {
               // ignore, don't retry request
             }
-          }
+          } else if (error.status === 403 && res && res.header['x-ratelimit-remaining'] === '0' &&
+                     res.header['x-ratelimit-reset']) {
+            try {
+              error.retryDelay =
+                Math.max(0, parseInt(res.header['x-ratelimit-reset'], 10) * 1000 - Date.now());
+              if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
+            } catch (e) {
+              // ignore, don't retry request
+            }
         }
         if (value === Hubkit.RETRY && tries < options.maxTries) {
           if (error.retryDelay) setTimeout(retry, error.retryDelay); else retry();
@@ -216,7 +224,7 @@ if (typeof require !== 'undefined') {
           if (options.stats) options.stats.record(true, cachedItem.size);
           resolve(cachedItem.value);
         } else if (!(res.ok || options.boolean && res.notFound && res.body &&
-            res.body.message === 'Not Found')) {
+            res.body.message === 'Not Found') || res.body && res.body.errors) {
           if (cacheable) {
             options.cache.del(cacheKey);
             if (options.stats) options.stats.record(false);
@@ -226,7 +234,7 @@ if (typeof require !== 'undefined') {
           } else if (res.status === 410 && typeof options.ifGone !== 'undefined') {
             resolve(options.ifGone);
           } else {
-            var errors = '';
+            var errors = '', rateLimited = false;
             if (res.body && res.body.errors) {
               errors = [];
               for (var i = 0; i < res.body.errors.length; i++) {
@@ -236,13 +244,15 @@ if (typeof require !== 'undefined') {
                 } else if (errorItem.field && errorItem.code) {
                   errors.push('field ' + errorItem.field + ' ' + errorItem.code);
                 }
+                if (errorItem.type === 'RATE_LIMITED') rateLimited = true;
               }
               errors = ' (' + errors.join(', ') + ')';
             }
             var statusError = new Error(
-              formatError('GitHub', res.status, (res.body && res.body.message) + errors)
+              formatError('GitHub', res.status, (res.body && res.body.message || '') + errors)
             );
             statusError.status = res.status;
+            if (res.status === 200) statusError.status = rateLimited ? 403 : 400;
             statusError.method = options.method;
             statusError.path = path;
             statusError.response = res;
