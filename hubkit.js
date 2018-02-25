@@ -255,7 +255,8 @@ if (typeof require !== 'undefined') {
                 }
                 if (errorItem.type === 'RATE_LIMITED') rateLimited = true;
               }
-              errors = ' (' + errors.join(', ') + ')';
+              errors = errors.join('; ');
+              if (res.body.message) errors = ' (' + errors + ')';
             }
             var statusError = new Error(
               formatError('GitHub', res.status, (res.body && res.body.message || '') + errors)
