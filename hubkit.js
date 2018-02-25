@@ -225,7 +225,7 @@ if (typeof require !== 'undefined') {
           if (options.stats) options.stats.record(true, cachedItem.size);
           resolve(cachedItem.value);
         } else if (!(res.ok || options.boolean && res.notFound && res.body &&
-            res.body.message === 'Not Found') || res.body && res.body.errors) {
+            res.body.message === 'Not Found') || res.body && !res.body.data && res.body.errors) {
           if (cacheable) {
             options.cache.del(cacheKey);
             if (options.stats) options.stats.record(false);
@@ -295,6 +295,18 @@ if (typeof require !== 'undefined') {
                   if (!root.hasOwnProperty(key) || key === 'nodes' || key === 'pageInfo') continue;
                   resultRoot[key] = root[key];
                 }
+                if (data.errors && data.errors.length) {
+                  outer: for (var i = 0; i < data.errors.length; i++) {
+                    var error = data.errors[i];
+                    if (result.errors && result.errors.length) {
+                      for (var j = 0; j < result.errors.length; j++) {
+                        if (result.errors[j].message === error.message) continue outer;
+                      }
+                    }
+                    result.errors = result.errors || [];
+                    result.errors.push(error);
+                  }
+                }
               }
               if (endCursor) {
                 if (options.allPages) {
@@ -320,6 +332,8 @@ if (typeof require !== 'undefined') {
                   }
                 }
               }
+            } else {
+              result = res.body;
             }
           } else if (res.body && (Array.isArray(res.body) || Array.isArray(res.body.items))) {
             if (!result) {
