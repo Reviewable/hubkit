@@ -1,4 +1,5 @@
 if (typeof require !== 'undefined') {
+  /* global require */
   if (typeof superagent === 'undefined') superagent = require('superagent');
   if (typeof LRUCache === 'undefined') LRUCache = require('lru-cache');
 }
@@ -7,12 +8,16 @@ if (typeof require !== 'undefined') {
   'use strict';
   var Hubkit = init();
   if (typeof angular !== 'undefined') {
+    /* global angular */
     angular.module('hubkit', []).constant('Hubkit', Hubkit);
   } else if (typeof module !== 'undefined') {
+    /* global module */
     module.exports = Hubkit;
   } else if (typeof self !== 'undefined') {
+    /* global self */
     self.Hubkit = Hubkit;
   } else if (typeof window !== 'undefined') {
+    /* global window */
     window.Hubkit = Hubkit;
   } else {
     throw new Error('Unable to install Hubkit - no recognizable global object found');
@@ -20,6 +25,10 @@ if (typeof require !== 'undefined') {
   superagent.parse['text/plain'] = function(o) {return o;};
 })(function() {
   'use strict';
+
+  var NETWORK_ERROR_CODES = [
+    'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EADDRINFO', 'ESOCKETTIMEDOUT'
+  ];
 
   var Hubkit = function(options) {
     options = defaults({}, options);
@@ -87,8 +96,8 @@ if (typeof require !== 'undefined') {
       cacheKey = computeCacheKey(path, options);
       cachedItem = checkCache(options, cacheKey);
       if (cachedItem && (
-          options.immutable ||
-          !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
+        options.immutable ||
+        !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
       )) {
         if (options.stats) {
           if (cachedItem.promise) {
@@ -129,12 +138,11 @@ if (typeof require !== 'undefined') {
         var value;
         if (options.onError) value = options.onError(error);
         if (value === undefined) {
-          if ([
-                'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EADDRINFO', 'ESOCKETTIMEDOUT'
-              ].indexOf(error.code) >= 0 ||
-              [500, 502, 503, 504].indexOf(error.status) >= 0 ||
-              error.originalMessage === 'socket hang up' ||
-              error.originalMessage === 'Unexpected end of input') {
+          if (NETWORK_ERROR_CODES.indexOf(error.code) >= 0 ||
+            [500, 502, 503, 504].indexOf(error.status) >= 0 ||
+            error.originalMessage === 'socket hang up' ||
+            error.originalMessage === 'Unexpected end of input'
+          ) {
             value = Hubkit.RETRY;
             options.agent = false;
           } else if (error.status === 403 && res && res.header['retry-after']) {
@@ -209,10 +217,10 @@ if (typeof require !== 'undefined') {
           options.corsSuccessFlags[options.host] = true;
         }
         if (error) {
-          if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) && (
-                options.corsSuccessFlags[options.host] ||
-                !cacheable && (options.method === 'GET' || options.method === 'HEAD')
-          )) {
+          if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
+              (options.corsSuccessFlags[options.host] ||
+               !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
+          ) {
             error.message = 'Request terminated abnormally, network may be offline';
           }
           error.originalMessage = error.message;
@@ -266,7 +274,7 @@ if (typeof require !== 'undefined') {
           if (res.header.link) {
             var match = /<([^>]+?)>;\s*rel="next"/.exec(res.header.link);
             nextUrl = match && match[1];
-            if (nextUrl && !(options.method == 'GET' || options.method === 'HEAD')) {
+            if (nextUrl && !(options.method === 'GET' || options.method === 'HEAD')) {
               throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
             }
           }
@@ -296,15 +304,15 @@ if (typeof require !== 'undefined') {
                   resultRoot[key] = root[key];
                 }
                 if (data.errors && data.errors.length) {
-                  outer: for (var i = 0; i < data.errors.length; i++) {
-                    var error = data.errors[i];
+                  outer: for (var j = 0; j < data.errors.length; j++) {
+                    var nextError = data.errors[j];
                     if (result.errors && result.errors.length) {
-                      for (var j = 0; j < result.errors.length; j++) {
-                        if (result.errors[j].message === error.message) continue outer;
+                      for (var k = 0; k < result.errors.length; k++) {
+                        if (result.errors[k].message === nextError.message) continue outer;
                       }
                     }
                     result.errors = result.errors || [];
-                    result.errors.push(error);
+                    result.errors.push(nextError);
                   }
                 }
               }
@@ -317,20 +325,19 @@ if (typeof require !== 'undefined') {
                   options.body.variables.after = endCursor;
                   send(options.body, 'page');
                   return;  // Don't resolve yet, more pages to come
-                } else {
-                  result.next = function() {
-                    return self.request(
-                      path,
-                      defaults({
-                        _cause: 'page', body: _.defaults({
-                          variables: _.defaults({
-                            after: endCursor
-                          }, options.body.variables)
-                        }, options.body)
-                      }, options)
-                    );
-                  }
                 }
+                result.next = function() {
+                  return self.request(
+                    path,
+                    defaults({
+                      _cause: 'page', body: defaults({
+                        variables: defaults({
+                          after: endCursor
+                        }, options.body.variables)
+                      }, options.body)
+                    }, options)
+                  );
+                };
               }
             } else {
               result = res.body;
@@ -354,11 +361,10 @@ if (typeof require !== 'undefined') {
                 options.body = null;
                 send(null, 'page');
                 return;  // Don't resolve yet, more pages to come.
-              } else {
-                result.next = function() {
-                  return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
-                };
               }
+              result.next = function() {
+                return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
+              };
             }
           } else {
             if (nextUrl || result) {
@@ -375,7 +381,7 @@ if (typeof require !== 'undefined') {
           }
           if (cacheable) {
             var size = res.text ? res.text.length : (res.body ?
-                (res.body.size || res.body.byteLength) : 1);
+              (res.body.size || res.body.byteLength) : 1);
             if (options.stats) options.stats.record(false, size);
             if (res.status === 200 && (res.header.etag || res.header['cache-control']) &&
                 size <= options.cache.max * options.maxItemSizeRatio) {
@@ -465,8 +471,8 @@ if (typeof require !== 'undefined') {
     if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
     if (req.agent) req.agent(options.agent);
     if (options.token) {
-      if (typeof module === 'undefined' && (
-          options.method === 'GET' || options.method === 'HEAD')) {
+      if (typeof module === 'undefined' &&
+          (options.method === 'GET' || options.method === 'HEAD')) {
         req.query({'access_token': options.token});
       } else {
         req.set('Authorization', 'token ' + options.token);
@@ -478,10 +484,11 @@ if (typeof require !== 'undefined') {
     }
     if (options.userAgent) req.set('User-Agent', options.userAgent);
     if (options.media) req.accept('application/vnd.github.' + options.media);
-    req.query({per_page: options.perPage});
-    if (options.responseType) req.on('request', function() {
-      this.xhr.responseType = options.responseType;
-    });
+    req.query({per_page: options.perPage});  // eslint-disable-line camelcase
+    if (options.responseType) {
+      // eslint-disable-next-line no-invalid-this
+      req.on('request', function() {this.xhr.responseType = options.responseType;});
+    }
     // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
     // allowed by Github's cross-domain request headers, and because we want to keep our requests
     // simple to avoid CORS preflight whenever possible.
@@ -509,7 +516,7 @@ if (typeof require !== 'undefined') {
         scopes.sort();
         metadata.oAuthScopes = [];
         for (var i = 0; i < scopes.length; i++) {
-          if (i === 0 || scopes[i-1] !== scopes[i]) metadata.oAuthScopes.push(scopes[i]);
+          if (i === 0 || scopes[i - 1] !== scopes[i]) metadata.oAuthScopes.push(scopes[i]);
         }
       }
     }
