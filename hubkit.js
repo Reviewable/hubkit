@@ -216,185 +216,192 @@ if (typeof require !== 'undefined') {
         if (!error && res.header['access-control-allow-origin']) {
           options.corsSuccessFlags[options.host] = true;
         }
-        if (error) {
-          if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
-              (options.corsSuccessFlags[options.host] ||
-               !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
-          ) {
-            error.message = 'Request terminated abnormally, network may be offline';
-          }
-          error.originalMessage = error.message;
-          error.message = formatError('Hubkit', error.message);
-          error.fingerprint =
-            ['Hubkit', options.method, options.pathPattern, error.originalMessage];
-          handleError(error, res);
-        } else if (res.status === 304) {
-          cachedItem.expiry = parseExpiry(res);
-          if (options.stats) options.stats.record(true, cachedItem.size);
-          resolve(cachedItem.value);
-        } else if (!(res.ok || options.boolean && res.notFound && res.body &&
-            res.body.message === 'Not Found') || res.body && !res.body.data && res.body.errors) {
-          if (cacheable) {
-            options.cache.del(cacheKey);
-            if (options.stats) options.stats.record(false);
-          }
-          if (res.status === 404 && typeof options.ifNotFound !== 'undefined') {
-            resolve(options.ifNotFound);
-          } else if (res.status === 410 && typeof options.ifGone !== 'undefined') {
-            resolve(options.ifGone);
-          } else {
-            var errors = '', rateLimited = false;
-            if (res.body && res.body.errors) {
-              errors = [];
-              for (var i = 0; i < res.body.errors.length; i++) {
-                var errorItem = res.body.errors[i];
-                if (errorItem.message) {
-                  errors.push(errorItem.message);
-                } else if (errorItem.field && errorItem.code) {
-                  errors.push('field ' + errorItem.field + ' ' + errorItem.code);
+        try {
+          if (error) {
+            if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
+                (options.corsSuccessFlags[options.host] ||
+                 !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
+            ) {
+              error.message = 'Request terminated abnormally, network may be offline';
+            }
+            error.originalMessage = error.message;
+            error.message = formatError('Hubkit', error.message);
+            error.fingerprint =
+              ['Hubkit', options.method, options.pathPattern, error.originalMessage];
+            handleError(error, res);
+          } else if (res.status === 304) {
+            cachedItem.expiry = parseExpiry(res);
+            if (options.stats) options.stats.record(true, cachedItem.size);
+            resolve(cachedItem.value);
+          } else if (!(res.ok || options.boolean && res.notFound && res.body &&
+              res.body.message === 'Not Found') || res.body && !res.body.data && res.body.errors) {
+            if (cacheable) {
+              options.cache.del(cacheKey);
+              if (options.stats) options.stats.record(false);
+            }
+            if (res.status === 404 && typeof options.ifNotFound !== 'undefined') {
+              resolve(options.ifNotFound);
+            } else if (res.status === 410 && typeof options.ifGone !== 'undefined') {
+              resolve(options.ifGone);
+            } else {
+              var errors = '', rateLimited = false;
+              if (res.body && res.body.errors) {
+                errors = [];
+                for (var i = 0; i < res.body.errors.length; i++) {
+                  var errorItem = res.body.errors[i];
+                  if (errorItem.message) {
+                    errors.push(errorItem.message);
+                  } else if (errorItem.field && errorItem.code) {
+                    errors.push('field ' + errorItem.field + ' ' + errorItem.code);
+                  }
+                  if (errorItem.type === 'RATE_LIMITED') rateLimited = true;
                 }
-                if (errorItem.type === 'RATE_LIMITED') rateLimited = true;
+                errors = errors.join('; ');
+                if (res.body.message) errors = ' (' + errors + ')';
               }
-              errors = errors.join('; ');
-              if (res.body.message) errors = ' (' + errors + ')';
+              var statusError = new Error(
+                formatError('GitHub', res.status, (res.body && res.body.message || '') + errors)
+              );
+              statusError.status = res.status;
+              if (res.status === 200) statusError.status = rateLimited ? 403 : 400;
+              statusError.method = options.method;
+              statusError.path = path;
+              statusError.response = res;
+              statusError.fingerprint =
+                ['Hubkit', options.method, options.pathPattern, '' + res.status];
+              handleError(statusError, res);
             }
-            var statusError = new Error(
-              formatError('GitHub', res.status, (res.body && res.body.message || '') + errors)
-            );
-            statusError.status = res.status;
-            if (res.status === 200) statusError.status = rateLimited ? 403 : 400;
-            statusError.method = options.method;
-            statusError.path = path;
-            statusError.response = res;
-            statusError.fingerprint =
-              ['Hubkit', options.method, options.pathPattern, '' + res.status];
-            handleError(statusError, res);
-          }
-        } else {
-          var nextUrl;
-          if (res.header.link) {
-            var match = /<([^>]+?)>;\s*rel="next"/.exec(res.header.link);
-            nextUrl = match && match[1];
-            if (nextUrl && !(options.method === 'GET' || options.method === 'HEAD')) {
-              throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
+          } else {
+            var nextUrl;
+            if (res.header.link) {
+              var match = /<([^>]+?)>;\s*rel="next"/.exec(res.header.link);
+              nextUrl = match && match[1];
+              if (nextUrl && !(options.method === 'GET' || options.method === 'HEAD')) {
+                throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
+              }
             }
-          }
-          if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
-            res.body = JSON.parse(res.text);
-          }
-          if (/^https?:\/\/[^/]+\/graphql/.test(path)) {
-            var data = res.body.data;
-            var keys = data ? Object.keys(data) : [];
-            var rootKey = keys.length === 1 ? keys[0] : undefined;
-            var root = data && data[rootKey];
-            var paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
-              /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
-            if (result && !(paginated && result.data[rootKey])) {
-              throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
+            if (!res.body && res.text && /\bformat=json\b/.test(res.header['x-github-media-type'])) {
+              res.body = JSON.parse(res.text);
             }
-            if (paginated) {
-              var endCursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
-              if (!result) {
-                result = res.body;
-                delete root.pageInfo;
-              } else {
-                var resultRoot = result.data[rootKey];
-                resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
-                for (var key in root) {
-                  if (!root.hasOwnProperty(key) || key === 'nodes' || key === 'pageInfo') continue;
-                  resultRoot[key] = root[key];
-                }
-                if (data.errors && data.errors.length) {
-                  outer: for (var j = 0; j < data.errors.length; j++) {
-                    var nextError = data.errors[j];
-                    if (result.errors && result.errors.length) {
-                      for (var k = 0; k < result.errors.length; k++) {
-                        if (result.errors[k].message === nextError.message) continue outer;
-                      }
+            if (/^https?:\/\/[^/]+\/graphql/.test(path)) {
+              var data = res.body.data;
+              var keys = data ? Object.keys(data) : [];
+              var rootKey = keys.length === 1 ? keys[0] : undefined;
+              var root = data && data[rootKey];
+              var paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
+                /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
+              if (result && !(paginated && result.data[rootKey])) {
+                throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
+              }
+              if (paginated) {
+                var endCursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
+                if (!result) {
+                  result = res.body;
+                  delete root.pageInfo;
+                } else {
+                  var resultRoot = result.data[rootKey];
+                  resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
+                  for (var key in root) {
+                    if (!root.hasOwnProperty(key) || key === 'nodes' || key === 'pageInfo') {
+                      continue;
                     }
-                    result.errors = result.errors || [];
-                    result.errors.push(nextError);
+                    resultRoot[key] = root[key];
+                  }
+                  if (data.errors && data.errors.length) {
+                    outer: for (var j = 0; j < data.errors.length; j++) {
+                      var nextError = data.errors[j];
+                      if (result.errors && result.errors.length) {
+                        for (var k = 0; k < result.errors.length; k++) {
+                          if (result.errors[k].message === nextError.message) continue outer;
+                        }
+                      }
+                      result.errors = result.errors || [];
+                      result.errors.push(nextError);
+                    }
                   }
                 }
+                if (endCursor) {
+                  if (options.allPages) {
+                    cachedItem = null;
+                    tries = 0;
+                    options._cause = 'page';
+                    options.body.variables = options.body.variables || {};
+                    options.body.variables.after = endCursor;
+                    send(options.body, 'page');
+                    return;  // Don't resolve yet, more pages to come
+                  }
+                  result.next = function() {
+                    return self.request(
+                      path,
+                      defaults({
+                        _cause: 'page', body: defaults({
+                          variables: defaults({
+                            after: endCursor
+                          }, options.body.variables)
+                        }, options.body)
+                      }, options)
+                    );
+                  };
+                }
+              } else {
+                result = res.body;
               }
-              if (endCursor) {
+            } else if (res.body && (Array.isArray(res.body) || Array.isArray(res.body.items))) {
+              if (!result) {
+                result = res.body;
+              } else if (Array.isArray(res.body) && Array.isArray(result)) {
+                result = result.concat(res.body);
+              } else if (Array.isArray(res.body.items) && Array.isArray(result.items)) {
+                result.items = result.items.concat(res.body.items);
+              } else {
+                throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
+              }
+              if (nextUrl) {
                 if (options.allPages) {
                   cachedItem = null;
                   tries = 0;
+                  path = nextUrl;
                   options._cause = 'page';
-                  options.body.variables = options.body.variables || {};
-                  options.body.variables.after = endCursor;
-                  send(options.body, 'page');
-                  return;  // Don't resolve yet, more pages to come
+                  options.body = null;
+                  send(null, 'page');
+                  return;  // Don't resolve yet, more pages to come.
                 }
                 result.next = function() {
-                  return self.request(
-                    path,
-                    defaults({
-                      _cause: 'page', body: defaults({
-                        variables: defaults({
-                          after: endCursor
-                        }, options.body.variables)
-                      }, options.body)
-                    }, options)
-                  );
+                  return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
                 };
               }
             } else {
-              result = res.body;
-            }
-          } else if (res.body && (Array.isArray(res.body) || Array.isArray(res.body.items))) {
-            if (!result) {
-              result = res.body;
-            } else if (Array.isArray(res.body) && Array.isArray(result)) {
-              result = result.concat(res.body);
-            } else if (Array.isArray(res.body.items) && Array.isArray(result.items)) {
-              result.items = result.items.concat(res.body.items);
-            } else {
-              throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
-            }
-            if (nextUrl) {
-              if (options.allPages) {
-                cachedItem = null;
-                tries = 0;
-                path = nextUrl;
-                options._cause = 'page';
-                options.body = null;
-                send(null, 'page');
-                return;  // Don't resolve yet, more pages to come.
+              if (nextUrl || result) {
+                throw new Error(formatError(
+                  'Hubkit', 'unable to find array in paginated response'));
               }
-              result.next = function() {
-                return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
-              };
+              if (options.boolean) {
+                result = !!res.noContent;
+              } else {
+                result =
+                  (options.responseType ||
+                   res.body && typeof res.body === 'object' && Object.keys(res.body).length) ?
+                    res.body : res.text;
+              }
             }
-          } else {
-            if (nextUrl || result) {
-              throw new Error(formatError(
-                'Hubkit', 'unable to find array in paginated response'));
+            if (cacheable) {
+              var size = res.text ? res.text.length : (res.body ?
+                (res.body.size || res.body.byteLength) : 1);
+              if (options.stats) options.stats.record(false, size);
+              if (res.status === 200 && (res.header.etag || res.header['cache-control']) &&
+                  size <= options.cache.max * options.maxItemSizeRatio) {
+                options.cache.set(cacheKey, {
+                  value: result, eTag: res.header.etag, status: res.status, size: size,
+                  expiry: parseExpiry(res)
+                });
+              } else {
+                options.cache.del(cacheKey);
+              }
             }
-            if (options.boolean) {
-              result = !!res.noContent;
-            } else {
-              result = (options.responseType ||
-                        res.body && typeof res.body === 'object' && Object.keys(res.body).length) ?
-                res.body : res.text;
-            }
+            resolve(result);
           }
-          if (cacheable) {
-            var size = res.text ? res.text.length : (res.body ?
-              (res.body.size || res.body.byteLength) : 1);
-            if (options.stats) options.stats.record(false, size);
-            if (res.status === 200 && (res.header.etag || res.header['cache-control']) &&
-                size <= options.cache.max * options.maxItemSizeRatio) {
-              options.cache.set(cacheKey, {
-                value: result, eTag: res.header.etag, status: res.status, size: size,
-                expiry: parseExpiry(res)
-              });
-            } else {
-              options.cache.del(cacheKey);
-            }
-          }
-          resolve(result);
+        } catch (e) {
+          handleError(e, res);
         }
       }
     });
