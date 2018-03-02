@@ -346,13 +346,18 @@ if (typeof require !== 'undefined') {
               } else {
                 result = res.body;
               }
-            } else if (res.body && (Array.isArray(res.body) || Array.isArray(res.body.items))) {
+            } else if (res.body && (
+              Array.isArray(res.body) || Array.isArray(res.body.items) ||
+              Array.isArray(res.body.statuses)
+            )) {
               if (!result) {
                 result = res.body;
               } else if (Array.isArray(res.body) && Array.isArray(result)) {
                 result = result.concat(res.body);
               } else if (Array.isArray(res.body.items) && Array.isArray(result.items)) {
                 result.items = result.items.concat(res.body.items);
+              } else if (Array.isArray(res.body.statuses) && Array.isArray(result.statuses)) {
+                result.statuses = result.statuses.concat(res.body.statuses);
               } else {
                 throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
               }
