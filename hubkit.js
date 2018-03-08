@@ -497,7 +497,9 @@ if (typeof require !== 'undefined') {
     }
     if (options.userAgent) req.set('User-Agent', options.userAgent);
     if (options.media) req.accept('application/vnd.github.' + options.media);
-    req.query({per_page: options.perPage});  // eslint-disable-line camelcase
+    if (options.method === 'GET' || options.method === 'HEAD') {
+      req.query({per_page: options.perPage});  // eslint-disable-line camelcase
+    }
     if (options.responseType) {
       // eslint-disable-next-line no-invalid-this
       req.on('request', function() {this.xhr.responseType = options.responseType;});
@@ -506,7 +508,7 @@ if (typeof require !== 'undefined') {
     // allowed by Github's cross-domain request headers, and because we want to keep our requests
     // simple to avoid CORS preflight whenever possible.
     // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
-    if (typeof module === 'undefined') {
+    if (typeof module === 'undefined' && (options.method === 'GET' || options.method === 'HEAD')) {
       req.query({'_nocache': Math.round(Math.random() * 1000000)});
     }
   }
