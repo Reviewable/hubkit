@@ -96,7 +96,8 @@ include:
 * `clientId` and `clientSecret`: For app-based anonymous authentication (increased API quotas without impersonating a user).
 * `userAgent`: The user-agent to present in requests.  Uses the browser's user agent, or `Hubkit`
 in NodeJS.
-* `host`: The hostname to prepend to all request paths; defaults to `https://api.github.com`.
+* `host`: The URL to prepend to all request paths; defaults to `https://api.github.com`.
+* `graphHost`: The URL to use for all GraphQL requests; defaults to using the value of `host` which works fine for `github.com`, but you'll need to set a separate value when working with GitHub Enterprise.
 * `timeout`: The timeout in milliseconds to apply to the request; none by default.  If the timeout is reached, the request will abort with an error that will have a `timeout` attribute set to the value you provided.
 * `agent`: On NodeJS only, the agent to use for the HTTP connection, e.g. to do connection pooling.  You may want to consider using [agentkeepalive](https://www.npmjs.com/package/agentkeepalive) if you're making a lot of requests.
 * `cache`: An object with `get`, `set`, and `del` methods to be used as a cache for responses.  The
