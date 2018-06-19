@@ -285,12 +285,30 @@ if (typeof require !== 'undefined') {
             }
             if (/^https?:\/\/[^/]+\/graphql/.test(path)) {
               var data = res.body.data;
-              var keys = data ? Object.keys(data) : [];
-              var rootKey = keys.length === 1 ? keys[0] : undefined;
-              var root = data && data[rootKey];
+              var root = data, rootKeys = [];
+              while (true) {
+                if (!root || Array.isArray(root) || typeof root === 'string' ||
+                    typeof root === 'number') {
+                  root = undefined;
+                  break;
+                }
+                var keys = Object.keys(root);
+                if (keys.length !== 1) break;
+                rootKeys.push(keys[0]);
+                root = root[keys[0]];
+                if (root.nodes) break;
+              }
               var paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
                 /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
-              if (result && !(paginated && result.data[rootKey])) {
+              var resultRoot;
+              if (paginated) {
+                resultRoot = result && result.data;
+                for (var p = 0; p < rootKeys.length; p++) {
+                  if (resultRoot === undefined) break;
+                  resultRoot = resultRoot[rootKeys[p]];
+                }
+              }
+              if (result && !(paginated && resultRoot && Array.isArray(resultRoot.nodes))) {
                 throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
               }
               if (paginated) {
@@ -299,7 +317,6 @@ if (typeof require !== 'undefined') {
                   result = res.body;
                   delete root.pageInfo;
                 } else {
-                  var resultRoot = result.data[rootKey];
                   resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
                   for (var key in root) {
                     if (!root.hasOwnProperty(key) || key === 'nodes' || key === 'pageInfo') {
