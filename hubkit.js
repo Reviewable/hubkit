@@ -296,7 +296,7 @@ if (typeof require !== 'undefined') {
                 if (keys.length !== 1) break;
                 rootKeys.push(keys[0]);
                 root = root[keys[0]];
-                if (root.nodes) break;
+                if (root && root.nodes) break;
               }
               var paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
                 /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
