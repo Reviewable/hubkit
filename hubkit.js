@@ -253,6 +253,8 @@ if (typeof require !== 'undefined') {
                     errors.push(errorItem.message);
                   } else if (errorItem.field && errorItem.code) {
                     errors.push('field ' + errorItem.field + ' ' + errorItem.code);
+                  } else if (typeof errorItem === 'string') {
+                    errors.push(errorItem);
                   }
                   if (errorItem.type === 'RATE_LIMITED') rateLimited = true;
                 }
