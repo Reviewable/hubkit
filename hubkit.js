@@ -191,7 +191,7 @@ if (typeof require !== 'undefined') {
           if (cause === 'page' || options._cause === 'page') req._query = [];
           if (timeout) req.timeout(timeout);
           if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
-          req.end(onComplete);
+          return req.then(onComplete).catch(onError);
         }).catch(function(error) {
           reject(error);
         });
@@ -207,29 +207,31 @@ if (typeof require !== 'undefined') {
           message;
       }
 
-      function onComplete(error, res) {
+      function onError(error) {
         if (error && error.response) {
-          res = error.response;
-          error = null;
+          return onComplete(error.response);
         }
+
+        if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
+            (options.corsSuccessFlags[options.host] ||
+              !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
+        ) {
+          error.message = 'Request terminated abnormally, network may be offline';
+        }
+        error.originalMessage = error.message;
+        error.message = formatError('Hubkit', error.message);
+        error.fingerprint =
+          ['Hubkit', options.method, options.pathPattern, error.originalMessage];
+        handleError(error);
+      }
+
+      function onComplete(res) {
         extractMetadata(path, res, options.metadata);
-        if (!error && res.header['access-control-allow-origin']) {
+        if (res.header['access-control-allow-origin']) {
           options.corsSuccessFlags[options.host] = true;
         }
         try {
-          if (error) {
-            if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
-                (options.corsSuccessFlags[options.host] ||
-                 !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
-            ) {
-              error.message = 'Request terminated abnormally, network may be offline';
-            }
-            error.originalMessage = error.message;
-            error.message = formatError('Hubkit', error.message);
-            error.fingerprint =
-              ['Hubkit', options.method, options.pathPattern, error.originalMessage];
-            handleError(error, res);
-          } else if (res.status === 304) {
+          if (res.status === 304) {
             cachedItem.expiry = parseExpiry(res);
             if (options.stats) options.stats.record(true, cachedItem.size);
             resolve(cachedItem.value);
@@ -504,7 +506,7 @@ if (typeof require !== 'undefined') {
 
   function addHeaders(req, options, cachedItem) {
     if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
-    if (req.agent) req.agent(options.agent);
+    if (typeof module !== 'undefined' && req.agent) req.agent(options.agent);
     if (options.token) {
       if (typeof module === 'undefined' &&
           (options.method === 'GET' || options.method === 'HEAD')) {

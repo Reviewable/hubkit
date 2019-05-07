@@ -23,11 +23,11 @@
   },
   "homepage": "https://github.com/pkaminski/hubkit",
   "engines": {
-    "node": ">=4.0"
+    "node": ">=6.0"
   },
   "dependencies": {
     "lru-cache": "^4.0.0",
-    "superagent": "^2.3.0"
+    "superagent": "^5.0.2"
   },
   "devDependencies": {
     "eslint": "^4.18.1",
