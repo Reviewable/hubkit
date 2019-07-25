@@ -191,7 +191,7 @@ if (typeof require !== 'undefined') {
           if (cause === 'page' || options._cause === 'page') req._query = [];
           if (timeout) req.timeout(timeout);
           if (body) req[options.method === 'GET' ? 'query' : 'send'](body);
-          return req.then(onComplete).catch(onError);
+          req.end(onComplete);
         }).catch(function(error) {
           reject(error);
         });
@@ -207,31 +207,29 @@ if (typeof require !== 'undefined') {
           message;
       }
 
-      function onError(error) {
+      function onComplete(error, res) {
         if (error && error.response) {
-          return onComplete(error.response);
+          res = error.response;
+          error = null;
         }
-
-        if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
-            (options.corsSuccessFlags[options.host] ||
-              !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
-        ) {
-          error.message = 'Request terminated abnormally, network may be offline';
-        }
-        error.originalMessage = error.message;
-        error.message = formatError('Hubkit', error.message);
-        error.fingerprint =
-          ['Hubkit', options.method, options.pathPattern, error.originalMessage];
-        handleError(error);
-      }
-
-      function onComplete(res) {
         extractMetadata(path, res, options.metadata);
-        if (res.header['access-control-allow-origin']) {
+        if (!error && res.header['access-control-allow-origin']) {
           options.corsSuccessFlags[options.host] = true;
         }
         try {
-          if (res.status === 304) {
+          if (error) {
+            if (/Origin is not allowed by Access-Control-Allow-Origin/.test(error.message) &&
+                (options.corsSuccessFlags[options.host] ||
+                 !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
+            ) {
+              error.message = 'Request terminated abnormally, network may be offline';
+            }
+            error.originalMessage = error.message;
+            error.message = formatError('Hubkit', error.message);
+            error.fingerprint =
+              ['Hubkit', options.method, options.pathPattern, error.originalMessage];
+            handleError(error, res);
+          } else if (res.status === 304) {
             cachedItem.expiry = parseExpiry(res);
             if (options.stats) options.stats.record(true, cachedItem.size);
             resolve(cachedItem.value);
