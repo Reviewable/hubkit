@@ -273,6 +273,11 @@ if (typeof require !== 'undefined') {
                 ['Hubkit', options.method, options.pathPattern, '' + res.status];
               handleError(statusError, res);
             }
+          } else if (options.media === 'raw' && res.type !== 'text/plain') {
+            // retry if github disregards 'raw'
+            handleError(new Error(
+              formatError('Hubkit', 'GitHub disregarded the \'raw\' media type')
+            ), res);
           } else {
             var nextUrl;
             if (res.header.link) {
