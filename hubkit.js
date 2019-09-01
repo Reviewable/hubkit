@@ -6,24 +6,28 @@ if (typeof require !== 'undefined') {
 
 (function(init) {
   'use strict';
-  var Hubkit = init();
+  var isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+  var isWebWorker = typeof self === 'object' && typeof WorkerGlobalScope === 'function' &&
+    self instanceof WorkerGlobalScope;
+  var isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+  var Hubkit = init(isNode);
   if (typeof angular !== 'undefined') {
     /* global angular */
     angular.module('hubkit', []).constant('Hubkit', Hubkit);
-  } else if (typeof module !== 'undefined') {
+  } else if (isNode) {
     /* global module */
     module.exports = Hubkit;
-  } else if (typeof self !== 'undefined') {
+  } else if (isWebWorker) {
     /* global self */
     self.Hubkit = Hubkit;
-  } else if (typeof window !== 'undefined') {
+  } else if (isBrowser) {
     /* global window */
     window.Hubkit = Hubkit;
   } else {
     throw new Error('Unable to install Hubkit - no recognizable global object found');
   }
   superagent.parse['text/plain'] = function(o) {return o;};
-})(function() {
+})(function(isNode) {
   'use strict';
 
   var NETWORK_ERROR_CODES = [
@@ -509,10 +513,9 @@ if (typeof require !== 'undefined') {
 
   function addHeaders(req, options, cachedItem) {
     if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
-    if (typeof module !== 'undefined' && req.agent) req.agent(options.agent);
+    if (isNode && req.agent) req.agent(options.agent);
     if (options.token) {
-      if (typeof module === 'undefined' &&
-          (options.method === 'GET' || options.method === 'HEAD')) {
+      if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
         req.query({'access_token': options.token});
       } else {
         req.set('Authorization', 'token ' + options.token);
@@ -535,7 +538,7 @@ if (typeof require !== 'undefined') {
     // allowed by Github's cross-domain request headers, and because we want to keep our requests
     // simple to avoid CORS preflight whenever possible.
     // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
-    if (typeof module === 'undefined' && (options.method === 'GET' || options.method === 'HEAD')) {
+    if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
       req.query({'_nocache': Math.round(Math.random() * 1000000)});
     }
   }
