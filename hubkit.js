@@ -530,10 +530,7 @@ if (typeof require !== 'undefined') {
     if (options.method === 'GET' || options.method === 'HEAD') {
       req.query({per_page: options.perPage});  // eslint-disable-line camelcase
     }
-    if (options.responseType) {
-      // eslint-disable-next-line no-invalid-this
-      req.on('request', function() {this.xhr.responseType = options.responseType;});
-    }
+    if (!isNode && options.responseType) req.responseType(options.responseType);
     // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
     // allowed by Github's cross-domain request headers, and because we want to keep our requests
     // simple to avoid CORS preflight whenever possible.
