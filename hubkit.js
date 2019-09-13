@@ -512,7 +512,7 @@ if (typeof require !== 'undefined') {
   }
 
   function addHeaders(req, options, cachedItem) {
-    // if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
+    if (cachedItem && cachedItem.eTag) req.set('If-None-Match', cachedItem.eTag);
     if (isNode && req.agent) req.agent(options.agent);
     if (options.token) {
       if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
