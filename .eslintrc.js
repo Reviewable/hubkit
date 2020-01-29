@@ -5,7 +5,7 @@ module.exports = {
   extends: ['eslint:recommended'],
   globals: {
     LRUCache: true,
-    superagent: true,
+    axios: true,
     Promise: false,
     setTimeout: false
   },
