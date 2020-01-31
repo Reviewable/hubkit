@@ -298,8 +298,7 @@ if (typeof require !== 'undefined') {
                 ['Hubkit', options.method, options.pathPattern, '' + res.status];
               handleError(statusError, res);
             }
-          } else if (options.media === 'raw' && res.headers['content-type'] &&
-              res.headers['content-type'].split(/ *; */).shift() !== 'text/plain') {
+          } else if (options.media === 'raw' && /^text\/plain *;?/.test(res.headers['content-type'])) {
             // retry if github disregards 'raw'
             handleError(new Error(
               formatError('Hubkit', 'GitHub disregarded the \'raw\' media type')
@@ -555,7 +554,7 @@ if (typeof require !== 'undefined') {
     if (options.userAgent) config.headers['User-Agent'] = options.userAgent;
     if (options.media) config.headers['Accept'] = 'application/vnd.github.' + options.media;
     if (options.method === 'GET' || options.method === 'HEAD') {
-      config.params['per_page'] = options.perPage;  // eslint-disable-line camelcase
+      config.params['per_page'] = options.perPage;
     }
     if (!isNode && options.responseType) config.responseType = options.responseType;
     // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not

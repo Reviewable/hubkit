@@ -1,6 +1,6 @@
 {
   "name": "hubkit",
-  "version": "1.0.6",
+  "version": "2.0.0",
   "homepage": "https://github.com/pkaminski/hubkit",
   "authors": [
     "Piotr Kaminski <piotr@ideanest.com>"
@@ -21,6 +21,7 @@
     "tests"
   ],
   "dependencies": {
-    "superagent": "5.x"
+    "axios": "^0.19.2",
+    "lru-cache": "^4.0.0"
   }
 }
