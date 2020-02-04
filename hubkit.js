@@ -298,7 +298,7 @@ if (typeof require !== 'undefined') {
                 ['Hubkit', options.method, options.pathPattern, '' + res.status];
               handleError(statusError, res);
             }
-          } else if (options.media === 'raw' && /^text\/plain *;?/.test(res.headers['content-type'])) {
+          } else if (options.media === 'raw' && !/^text\/plain *;?/.test(res.headers['content-type'])) {
             // retry if github disregards 'raw'
             handleError(new Error(
               formatError('Hubkit', 'GitHub disregarded the \'raw\' media type')
@@ -537,11 +537,7 @@ if (typeof require !== 'undefined') {
       config[/^https:/.test(options.host) ? 'httpsAgent' : 'httpAgent'] = options.agent;
     }
     if (options.token) {
-      if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
-        config.params['access_token'] = options.token;
-      } else {
-        config.headers['Authorization'] = 'token ' + options.token;
-      }
+      config.headers['Authorization'] = 'token ' + options.token;
     } else if (options.username && options.password) {
       config.auth = {
         username: options.username,
