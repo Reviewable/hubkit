@@ -553,10 +553,8 @@ if (typeof require !== 'undefined') {
       config.params['per_page'] = options.perPage;
     }
     if (!isNode && options.responseType) config.responseType = options.responseType;
-    // Work around Firefox bug that forces caching.  We can't use Cache-Control because it's not
-    // allowed by Github's cross-domain request headers, and because we want to keep our requests
-    // simple to avoid CORS preflight whenever possible.
-    // https://bugzilla.mozilla.org/show_bug.cgi?id=428916
+    // We can't use Cache-Control because it's not
+    // allowed by Github's cross-domain request headers
     if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
       config.params['_nocache'] = Math.round(Math.random() * 1000000);
     }
