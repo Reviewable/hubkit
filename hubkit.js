@@ -123,7 +123,7 @@ if (typeof require !== 'undefined') {
       send(options.body, options._cause || 'initial');
 
       function handleError(error, res) {
-        error.request = {method: options.method, url: path, headers: res && res.config.headers};
+        error.request = {method: options.method, url: path, headers: res && res.headers};
         if (error.request.headers) delete error.request.headers.authorization;
         if (cacheable && res && res.status) {
           options.cache.del(cacheKey);
@@ -426,8 +426,11 @@ if (typeof require !== 'undefined') {
               }
             } else {
               if (nextUrl || result) {
-                throw new Error(formatError(
+                var error = new Error(formatError(
                   'Hubkit', 'unable to find array in paginated response'));
+                error.nextUrl = nextUrl;
+                error.accumulatedResult = result;
+                throw error;
               }
               if (options.boolean) {
                 result = res.status === 204;
