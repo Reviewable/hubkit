@@ -397,7 +397,7 @@ if (typeof require !== 'undefined') {
               }
             } else if (res.data && (
               Array.isArray(res.data) || Array.isArray(res.data.items) ||
-              Array.isArray(res.data.statuses)
+              Array.isArray(res.data.statuses) || Array.isArray(res.data.files)
             )) {
               if (!result) {
                 result = res.data;
@@ -407,6 +407,8 @@ if (typeof require !== 'undefined') {
                 result.items = result.items.concat(res.data.items);
               } else if (Array.isArray(res.data.statuses) && Array.isArray(result.statuses)) {
                 result.statuses = result.statuses.concat(res.data.statuses);
+              } else if (Array.isArray(res.data.files) && Array.isArray(result.files)) {
+                result.files = result.files.concat(res.data.files);
               } else {
                 throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
               }
