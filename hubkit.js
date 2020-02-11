@@ -557,7 +557,8 @@ if (typeof require !== 'undefined') {
     if (options.method === 'GET' || options.method === 'HEAD') {
       config.params['per_page'] = options.perPage;
     }
-    if (!isNode && options.responseType) config.responseType = options.responseType;
+    // axios default response type is 'json'
+    if (!isNode) config.responseType = options.responseType || 'text';
     // We can't use Cache-Control because it's not
     // allowed by Github's cross-domain request headers
     if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
