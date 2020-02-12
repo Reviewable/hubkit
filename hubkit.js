@@ -195,8 +195,13 @@ if (typeof require !== 'undefined') {
             headers: {},
             transformResponse: [function(data) {
               rawData = data;
+              // avoid axios default transform for 'raw'
+              // https://github.com/axios/axios/issues/907
+              if (options.media !== 'raw') {
+                return axios.defaults.transformResponse[0](data);
+              }
               return data;
-            }].concat(axios.defaults.transformResponse),
+            }]
           };
           addHeaders(config, options, cachedItem);
 
