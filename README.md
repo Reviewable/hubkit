@@ -62,8 +62,8 @@ options object passed to the constructor.  The method can be specified either to
 or as a `{method: 'GET'}` option (the inline one takes precedence, and `GET` is the default if
 nothing else is found).
 
-There are two ways to authenticate:  either pass a `token` to the options, or both a `username` and
-`password`.  Unauthenticated requests are fine too, of course.
+There are two ways to authenticate:  either pass a `token` to the options, or both a `clientId` and
+`clientSecret`.  Unauthenticated requests are fine too, of course.
 
 Every call returns a `Promise`, which you might need to polyfill if your target environment doesn't
 support it natively.  You can then use the standard `then` API to specify both success and failure
@@ -92,7 +92,6 @@ object (see below) or on `Hubkit` if you didn't set one.
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
 include:
 * `token`: String token to use for authentication; takes precedence over other auth methods.
-* `username` and `password`: For basic authentication; takes precedence over app-based authentication.
 * `clientId` and `clientSecret`: For app-based anonymous authentication (increased API quotas without impersonating a user).
 * `userAgent`: The user-agent to present in requests.  Uses the browser's user agent, or `Hubkit`
 in NodeJS.

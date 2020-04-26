@@ -549,13 +549,12 @@ if (typeof require !== 'undefined') {
     if (options.token) {
       config.headers['Authorization'] = 'token ' + options.token;
     } else if (options.username && options.password) {
-      config.auth = {
-        username: options.username,
-        password: options.password
-      };
+      throw new Error('Username / password authentication is no longer supported');
     } else if (options.clientId && options.clientSecret) {
-      config.params['client_id'] = options.clientId;
-      config.params['client_secret'] = options.clientSecret;
+      config.auth = {
+        username: options.clientId,
+        password: options.clientSecret
+      };
     }
     if (options.userAgent) config.headers['User-Agent'] = options.userAgent;
     if (options.media) config.headers['Accept'] = 'application/vnd.github.' + options.media;
