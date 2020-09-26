@@ -21,7 +21,7 @@
     "tests"
   ],
   "dependencies": {
-    "axios": "^0.19.2",
-    "lru-cache": "^4.0.0"
+    "axios": "^0.20.0",
+    "lru-cache": "^6.0.0"
   }
 }
