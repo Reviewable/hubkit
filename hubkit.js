@@ -191,6 +191,7 @@ if (typeof require !== 'undefined') {
             url: path,
             method: options.method,
             timeout: timeout || 0,
+            withCredentials: true,  // make sure we send GitHub's cookies
             params: {},
             headers: {},
             transformResponse: [function(data) {
