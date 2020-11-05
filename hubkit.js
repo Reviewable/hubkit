@@ -320,7 +320,7 @@ if (typeof require !== 'undefined') {
             if (!res.data && rawData && /\bformat=json\b/.test(res.headers['x-github-media-type'])) {
               res.data = JSON.parse(rawData);
             }
-            if (/^https?:\/\/[^/]+\/graphql/.test(path)) {
+            if (isGraphqlUrl(path)) {
               var data = res.data.data;
               var root = data, rootKeys = [];
               while (true) {
@@ -486,6 +486,10 @@ if (typeof require !== 'undefined') {
     return this.request('POST /graphql', postOptions);
   };
 
+  function isGraphqlUrl(url) {
+    return /^https?:\/\/[^/]+(?:\/api)?\/graphql/.test(url);
+  }
+
   function defaults(o1, o2) {
     var onError1 = o1 && o1.onError, onError2 = o2 && o2.onError;
     if (onError1 && onError2) {
@@ -572,7 +576,7 @@ if (typeof require !== 'undefined') {
   function extractMetadata(path, res, metadata) {
     if (!(res && metadata)) return;
     var rateName = /^https?:\/\/[^/]+\/search\//.test(path) ? 'searchRateLimit' :
-      (/^https?:\/\/[^/]+\/graphql/.test(path) ? 'graphRateLimit' : 'rateLimit');
+      (isGraphqlUrl(path) ? 'graphRateLimit' : 'rateLimit');
     metadata[rateName] = res.headers['x-ratelimit-limit'] &&
       parseInt(res.headers['x-ratelimit-limit'], 10);
     metadata[rateName + 'Remaining'] = res.headers['x-ratelimit-remaining'] &&
