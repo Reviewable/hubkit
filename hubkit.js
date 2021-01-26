@@ -303,7 +303,9 @@ if (typeof require !== 'undefined') {
                 ['Hubkit', options.method, options.pathPattern, '' + res.status];
               handleError(statusError, res);
             }
-          } else if (options.media === 'raw' && !/^text\/plain *;?/.test(res.headers['content-type'])) {
+          } else if (options.media === 'raw' && !(
+            /^(?:text\/plain|application\/octet-stream) *;?/.test(res.headers['content-type'])
+          )) {
             // retry if github disregards 'raw'
             handleError(new Error(
               formatError('Hubkit', 'GitHub disregarded the \'raw\' media type')
