@@ -26,11 +26,11 @@
     "node": ">=6.0"
   },
   "dependencies": {
-    "axios": "0.21",
+    "axios": "0.24.0",
     "lru-cache": "6.x"
   },
   "devDependencies": {
     "eslint": "7.x",
-    "release-it": "14.x"
+    "release-it": "14.11.6"
   }
 }
