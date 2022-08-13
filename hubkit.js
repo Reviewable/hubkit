@@ -6,10 +6,12 @@ if (typeof require !== 'undefined') {
 
 (function(init) {
   'use strict';
+  /* eslint-disable no-undef */
   var isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
   var isWebWorker = typeof self === 'object' && typeof WorkerGlobalScope === 'function' &&
     self instanceof WorkerGlobalScope;
   var isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+  /* eslint-enable no-undef */
   var Hubkit = init(isNode);
   if (typeof angular !== 'undefined') {
     /* global angular */
@@ -30,7 +32,8 @@ if (typeof require !== 'undefined') {
   'use strict';
 
   var NETWORK_ERROR_CODES = [
-    'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EADDRINFO', 'ESOCKETTIMEDOUT'
+    'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EADDRINFO', 'ESOCKETTIMEDOUT', 'ECONNABORTED',
+    'ERR_NETWORK'
   ];
 
   var Hubkit = function(options) {
@@ -358,7 +361,8 @@ if (typeof require !== 'undefined') {
                 } else {
                   resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
                   for (var key in root) {
-                    if (!root.hasOwnProperty(key) || key === 'nodes' || key === 'pageInfo') {
+                    if (!Object.hasOwnProperty.call(root, key) ||
+                        key === 'nodes' || key === 'pageInfo') {
                       continue;
                     }
                     resultRoot[key] = root[key];
@@ -548,6 +552,7 @@ if (typeof require !== 'undefined') {
   }
 
   function addHeaders(config, options, cachedItem) {
+    /* eslint-disable dot-notation */
     if (cachedItem && cachedItem.eTag) config.headers['If-None-Match'] = cachedItem.eTag;
     if (isNode && options.agent) {
       config[/^https:/.test(options.host) ? 'httpsAgent' : 'httpAgent'] = options.agent;
@@ -573,6 +578,7 @@ if (typeof require !== 'undefined') {
     if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
       config.params['_nocache'] = Math.round(Math.random() * 1000000);
     }
+    /* eslint-enable dot-notation */
   }
 
   function extractMetadata(path, res, metadata) {

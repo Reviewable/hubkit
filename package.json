@@ -6,7 +6,8 @@
   "types": "index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "release": "release-it"
+    "release": "release-it",
+    "update": "yarn upgrade-interactive --latest"
   },
   "repository": {
     "type": "git",
@@ -27,11 +28,11 @@
     "node": ">=6.0"
   },
   "dependencies": {
-    "axios": "0.24.0",
+    "axios": "0.27.2",
     "lru-cache": "6.x"
   },
   "devDependencies": {
-    "eslint": "7.x",
-    "release-it": "14.11.6"
+    "eslint": "8.21.0",
+    "release-it": "15.3.0"
   }
 }
