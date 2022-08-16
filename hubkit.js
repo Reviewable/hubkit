@@ -247,6 +247,7 @@ if (typeof require !== 'undefined') {
         ) {
           error.message = 'Request terminated abnormally, network may be offline';
         }
+        if (error.message === 'maxContentLength size of -1 exceeded') error.message = 'aborted';
         error.originalMessage = error.message;
         error.message = formatError('Hubkit', error.message);
         error.fingerprint = ['Hubkit', options.method, options.pathPattern, error.originalMessage];
