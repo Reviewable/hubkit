@@ -255,6 +255,9 @@ if (typeof require !== 'undefined') {
       }
 
       function onComplete(res, rawData) {
+        // Sometimes an error response appears to be missing its headers object altogether.  Patch
+        // in an empty one to save on special-casing a bunch of code.
+        if (!res.headers) res.headers = {};
         extractMetadata(path, res, options.metadata);
         if (res.headers['access-control-allow-origin']) {
           options.corsSuccessFlags[options.host] = true;
