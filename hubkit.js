@@ -135,8 +135,7 @@ if (typeof require !== 'undefined') {
         // If the request failed due to CORS, it may be because it was both preflighted and
         // redirected.  Attempt to recover by reissuing it as a simple request without preflight,
         // which requires getting rid of all extraneous headers.
-        if (cacheable &&
-            /Network Error/.test(error.originalMessage)) {
+        if (cacheable && /Network Error/.test(error.originalMessage)) {
           cacheable = false;
           retry();
           return;
@@ -237,11 +236,12 @@ if (typeof require !== 'undefined') {
       }
 
       function onError(error) {
-        if (error.response) {
-          return onComplete(error.response);
-        }
+        // If we get an error response without a status, then it's not a real error coming back from
+        // the server but some kind of synthetic response Axios concocted for us.  Treat it as a
+        // generic network error.
+        if (error.response && error.response.status) return onComplete(error.response);
 
-        if (/Network Error/.test(error.message) &&
+        if ((/Network Error/.test(error.message) || error.message === '0') &&
             (options.corsSuccessFlags[options.host] ||
               !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
         ) {
@@ -249,15 +249,11 @@ if (typeof require !== 'undefined') {
         }
         error.originalMessage = error.message;
         error.message = formatError('Hubkit', error.message);
-        error.fingerprint =
-          ['Hubkit', options.method, options.pathPattern, error.originalMessage];
+        error.fingerprint = ['Hubkit', options.method, options.pathPattern, error.originalMessage];
         handleError(error);
       }
 
       function onComplete(res, rawData) {
-        // Sometimes an error response appears to be missing its headers object altogether.  Patch
-        // in an empty one to save on special-casing a bunch of code.
-        if (!res.headers) res.headers = {};
         extractMetadata(path, res, options.metadata);
         if (res.headers['access-control-allow-origin']) {
           options.corsSuccessFlags[options.host] = true;
