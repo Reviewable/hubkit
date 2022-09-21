@@ -265,19 +265,31 @@ if (typeof require !== 'undefined') {
             cachedItem.expiry = parseExpiry(res);
             if (options.stats) options.stats.record(true, cachedItem.size);
             resolve(cachedItem.value);
-          } else if (!(res.status >= 200 && res.status < 300 || options.boolean &&
-              res.status === 404 && res.data && res.data.message === 'Not Found') ||
-              res.data && !res.data.data && res.data.errors) {
+          } else if (
+            !(res.status >= 200 && res.status < 300 ||
+              options.boolean && res.status === 404 && res.data && res.data.message === 'Not Found'
+            ) || res.data && res.data.errors
+          ) {
             if (cacheable) {
               options.cache.del(cacheKey);
               if (options.stats) options.stats.record(false);
             }
-            if (res.status === 404 && typeof options.ifNotFound !== 'undefined') {
+            var status = res.status;
+            if (res.data && res.data.errors && res.status === 200) {
+              if (res.data.errors.every(function(error) {
+                return error.type === 'RATE_LIMITED' || error.type === 'FORBIDDEN';
+              })) status = 403;
+              else if (res.data.errors.every(function(error) {
+                return error.type === 'NOT_FOUND';
+              })) status = 404;
+              else status = 400;
+            }
+            if (status === 404 && typeof options.ifNotFound !== 'undefined') {
               resolve(options.ifNotFound);
-            } else if (res.status === 410 && typeof options.ifGone !== 'undefined') {
+            } else if (status === 410 && typeof options.ifGone !== 'undefined') {
               resolve(options.ifGone);
             } else {
-              var errors = '', rateLimited = false;
+              var errors = '';
               if (res.data && res.data.errors) {
                 errors = [];
                 for (var i = 0; i < res.data.errors.length; i++) {
@@ -289,21 +301,25 @@ if (typeof require !== 'undefined') {
                   } else if (typeof errorItem === 'string') {
                     errors.push(errorItem);
                   }
-                  if (errorItem.type === 'RATE_LIMITED') rateLimited = true;
                 }
                 errors = errors.join('; ');
-                if (res.data.message) errors = ' (' + errors + ')';
+                if (res.data.message && errors) errors = ' (' + errors + ')';
               }
               var statusError = new Error(
-                formatError('GitHub', res.status, (res.data && res.data.message || '') + errors)
+                formatError('GitHub', status, (res.data && res.data.message || '') + errors)
               );
-              statusError.status = res.status;
-              if (res.status === 200) statusError.status = rateLimited ? 403 : 400;
+              statusError.status = status;
+              if (res.data && res.data.errors) statusError.errors = res.data.errors;
+              if (res.data && res.data.data) statusError.data = res.data.data;
               statusError.method = options.method;
+              if (options.body && options.body.query && /^\s*query/.test(options.body.query)) {
+                statusError.method = 'GET';
+              }
               statusError.path = path;
               statusError.response = res;
+              if (options.logTag) statusError.logTag = options.logTag;
               statusError.fingerprint =
-                ['Hubkit', options.method, options.pathPattern, '' + res.status];
+                ['Hubkit', options.method, options.logTag || options.pathPattern, '' + status];
               handleError(statusError, res);
             }
           } else if (options.media === 'raw' && !(
@@ -326,8 +342,7 @@ if (typeof require !== 'undefined') {
               res.data = JSON.parse(rawData);
             }
             if (isGraphqlUrl(path)) {
-              var data = res.data.data;
-              var root = data, rootKeys = [];
+              var root = res.data.data, rootKeys = [];
               while (true) {
                 if (!root || Array.isArray(root) || typeof root === 'string' ||
                     typeof root === 'number') {
@@ -356,7 +371,7 @@ if (typeof require !== 'undefined') {
               if (paginated) {
                 var endCursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
                 if (!result) {
-                  result = res.data;
+                  result = res.data.data;
                   delete root.pageInfo;
                 } else {
                   resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
@@ -366,18 +381,6 @@ if (typeof require !== 'undefined') {
                       continue;
                     }
                     resultRoot[key] = root[key];
-                  }
-                  if (data.errors && data.errors.length) {
-                    outer: for (var j = 0; j < data.errors.length; j++) {
-                      var nextError = data.errors[j];
-                      if (result.errors && result.errors.length) {
-                        for (var k = 0; k < result.errors.length; k++) {
-                          if (result.errors[k].message === nextError.message) continue outer;
-                        }
-                      }
-                      result.errors = result.errors || [];
-                      result.errors.push(nextError);
-                    }
                   }
                 }
                 if (endCursor) {
@@ -404,7 +407,7 @@ if (typeof require !== 'undefined') {
                   };
                 }
               } else {
-                result = res.data;
+                result = res.data.data;
               }
             } else if (res.data && (
               Array.isArray(res.data) || Array.isArray(res.data.items) ||
