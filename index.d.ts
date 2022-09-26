@@ -43,7 +43,18 @@ interface Options {
   [key: string]: any;
 
   onSend?(cause: 'initial' | 'retry' | 'page'): number;  // returns timeout
-  onError?(error: Error & {status?: number, timeout?: boolean}):
+  onError?(error: Error & {
+    status?: number,
+    data?: any,
+    errors?: any,
+    method?: string,
+    path?: string,
+    request?: any,
+    response?: any,
+    logTag?: string,
+    fingerprint?: string[],
+    timeout?: boolean,
+  }):
     undefined | typeof Hubkit.RETRY | typeof Hubkit.DONT_RETRY | any;
 }
 
