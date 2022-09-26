@@ -359,7 +359,7 @@ if (typeof require !== 'undefined') {
                 /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
               var resultRoot;
               if (paginated) {
-                resultRoot = result && result.data;
+                resultRoot = result;
                 for (var p = 0; p < rootKeys.length; p++) {
                   if (resultRoot === undefined) break;
                   resultRoot = resultRoot[rootKeys[p]];
