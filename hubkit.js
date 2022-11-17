@@ -315,7 +315,8 @@ if (typeof require !== 'undefined') {
               if (options.body && options.body.query && /^\s*query/.test(options.body.query)) {
                 statusError.method = 'GET';
               }
-              statusError.path = path;
+              statusError.path = path;  // This is actually the fully expanded URL at this point.
+              statusError.pathPattern = options.pathPattern;
               statusError.response = res;
               if (options.logTag) statusError.logTag = options.logTag;
               statusError.fingerprint =
@@ -503,8 +504,9 @@ if (typeof require !== 'undefined') {
     var onError1 = o1 && o1.onError, onError2 = o2 && o2.onError;
     if (onError1 && onError2) {
       o1.onError = function(error) {
-        var value1 = onError1(error), value2 = onError2(error);
-        return value1 === undefined ? value2 : value1;
+        var value1 = onError1(error);
+        if (value1 !== undefined) return value1;
+        return onError2(error);
       };
     }
     for (var key in o2) {
