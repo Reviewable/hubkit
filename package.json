@@ -32,7 +32,7 @@
     "lru-cache": "6.x"
   },
   "devDependencies": {
-    "eslint": "8.21.0",
+    "eslint": "8.x",
     "release-it": "15.3.0"
   }
 }
