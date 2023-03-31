@@ -7,7 +7,7 @@ export default class Hubkit {
   constructor(options?: Options);
   defaultOptions: Options;
   request(path: string, options?: Options): Promise<any>;
-  graph(query: string, options?: Options & {variables: Record<string, any>}): Promise<any>;
+  graph(query: string, options?: Options & {variables?: Record<string, any>}): Promise<any>;
   interpolate(string: string, options?: Record<string, any>)
 }
 

@@ -485,6 +485,7 @@ if (typeof require !== 'undefined') {
   };
 
   Hubkit.prototype.graph = function(query, options) {
+    options = options || {};
     var postOptions = defaults({body: {query: query}}, options);
     postOptions.host =
       options.graphHost || options.host || this.defaultOptions.graphHost ||
