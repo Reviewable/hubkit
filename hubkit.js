@@ -282,6 +282,9 @@ if (typeof require !== 'undefined') {
               else if (res.data.errors.every(function(error) {
                 return error.type === 'NOT_FOUND';
               })) status = 404;
+              else if (res.data.errors.some(function(error) {
+                return /^something went wrong/i.test(error.message);
+              })) status = 500;
               else status = 400;
             }
             if (status === 404 && typeof options.ifNotFound !== 'undefined') {
