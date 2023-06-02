@@ -548,14 +548,16 @@ if (typeof require !== 'undefined') {
         }
         value = value[parts[i]];
       }
-      if (value) {
-        parts = value.toString().split('/');
-        for (i = 0; i < parts.length; i++) {
-          parts[i] = encodeURIComponent(parts[i]);
-        }
-        value = parts.join('/');
+      if (value === null || value === undefined || value === '') {
+        throw new Error(
+          'Variable "' + v + '" is ' + (value === '' ? 'empty' : value) +
+          ' for path "' + string + '"');
       }
-      return value;
+      parts = value.toString().split('/');
+      for (i = 0; i < parts.length; i++) {
+        parts[i] = encodeURIComponent(parts[i]);
+      }
+      return parts.join('/');
     });
     return string;
   }
