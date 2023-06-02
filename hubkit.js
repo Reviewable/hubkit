@@ -538,6 +538,7 @@ if (typeof require !== 'undefined') {
   }
 
   function interpolate(string, options) {
+    var emptyVariable;
     string = string.replace(/:([a-z-_]+)|\{(.+?)\}/gi, function(match, v1, v2) {
       var v = (v1 || v2);
       var parts = v.split('.');
@@ -548,15 +549,22 @@ if (typeof require !== 'undefined') {
         }
         value = value[parts[i]];
       }
-      if (value) {
-        parts = value.toString().split('/');
-        for (i = 0; i < parts.length; i++) {
-          parts[i] = encodeURIComponent(parts[i]);
-        }
-        value = parts.join('/');
+      if (value === '') emptyVariable = v;
+      if (value === null || value === undefined) {
+        throw new Error('Variable "' + v + '" is ' + value + ' for path "' + string + '"');
       }
-      return value;
+      parts = value.toString().split('/');
+      for (i = 0; i < parts.length; i++) {
+        parts[i] = encodeURIComponent(parts[i]);
+      }
+      return parts.join('/');
     });
+    if (/\/\//.test(string)) {
+      if (emptyVariable) {
+        throw new Error('Variable "' + emptyVariable + '" is empty for path "' + string + '"');
+      }
+      throw new Error('Collapsed segment in path "' + string + '"');
+    }
     return string;
   }
 
