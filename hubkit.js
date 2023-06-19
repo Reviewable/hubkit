@@ -81,7 +81,7 @@ if (typeof require !== 'undefined') {
   Hubkit.defaults = {
     method: 'GET', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3,
     maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats(), agent: false,
-    corsSuccessFlags: {}
+    corsSuccessFlags: {}, gheVersion: undefined, scopes: undefined
   };
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
@@ -489,6 +489,38 @@ if (typeof require !== 'undefined') {
 
   Hubkit.prototype.graph = function(query, options) {
     options = options || {};
+    var fullOptions = Object.assign({}, this.defaultOptions, options);
+    query = query.replace(
+      /#(\w+)\s*\(([^)]+)\)\s*\{([\s\S]*?)#\}/g,
+      function(match, directive, arg, contents) {
+        switch (directive) {
+          case 'ghe':
+            if (fullOptions.host === 'https://api.github.com') return contents;
+            if (!fullOptions.gheVersion) {
+              throw new Error('Hubkit unable to process #ghe directive: gheVersion missing');
+            }
+            var neededVersion = arg.split('.').map(function(x) {return parseInt(x, 10);});
+            var actualVersion =
+              fullOptions.gheVersion.split('.').map(function(x) {return parseInt(x, 10);});
+            if (actualVersion[0] > neededVersion[0] ||
+                actualVersion[0] === neededVersion[0] && actualVersion[1] >= neededVersion[1]) {
+              return contents;
+            }
+            return '';
+          case 'scope':
+            if (!fullOptions.scopes) {
+              throw new Error('Hubkit unable to process #scope directive: scopes missing');
+            }
+            return fullOptions.scopes.includes(arg) ? contents : '';
+          default:
+            throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
+        }
+      }
+    );
+    if (/#(\w+)\s*\(([^)]+)\)/.test(query)) {
+      throw new Error(
+        'Hubkit preprocessing directives may not have been correctly terminated: ' + query);
+    }
     var postOptions = defaults({body: {query: query}}, options);
     postOptions.host =
       options.graphHost || options.host || this.defaultOptions.graphHost ||
