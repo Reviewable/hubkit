@@ -41,7 +41,7 @@ And one for GraphQL:
 
 ```javascript
 // initialize gh as above
-gh.graph(```
+gh.graph(`
   query ($after: String) {
     search (type: ISSUE, first: 10, after: $after, query: `type: pr`) {
       pageInfo {hasNextPage, endCursor},
@@ -52,7 +52,7 @@ gh.graph(```
       }
     }
   }
-  ```);
+`);
 ```
 
 You issue requests exactly as documented in GitHub's [REST API](https://developer.github.com/v3/) or
@@ -62,24 +62,39 @@ options object passed to the constructor.  The method can be specified either to
 or as a `{method: 'GET'}` option (the inline one takes precedence, and `GET` is the default if
 nothing else is found).
 
+GraphQL queries are first run through a preprocessor that lets you exclude clauses if the GHE version is too old or the user's authorization lacks a specific scope.  This is useful since GraphQL forbids references to fields not in the schema, and GHE servers in the field are often months or years behind `github.com` in that respect.  To use this facility you need to include `gheVersion` or `scopes` properties in the options (see below) and form your query like this:
+```javascript
+gh.graph(`
+  query ($owner: String!, $repo: String!, $number: Int!) {
+    repository (owner: $owner, name: $repo) {
+      pullRequest (number: $number) {
+        id, number, title,
+        #ghe(2.17) {
+          isDraft
+        #}
+        reviewRequests {
+          nodes {
+            requestedReviewer {
+              ...on User {login, name}
+              #scope(read:org) {
+                ...on Team {combinedSlug, name}
+              #}
+            }
+          }
+        }
+      }
+    }
+  }
+`);
+```
+
 There are two ways to authenticate:  either pass a `token` to the options, or both a `clientId` and
 `clientSecret`.  Unauthenticated requests are fine too, of course.
 
-Every call returns a `Promise`, which you might need to polyfill if your target environment doesn't
-support it natively.  You can then use the standard `then` API to specify both success and failure
-callbacks, or in Node it integrates nicely with [`co`](https://github.com/visionmedia/co), so you
-can do something like:
-
-```javascript
-co(function*() {
-  var commits = yield gh.request('GET /repose/:owner/:repo/commits');
-})();
-```
-
-The returned values are exactly as documented in the GitHub API, except that requests with option
-`{boolean: true}` will return `true` or `false` instead (sorry, no way to automate it).  Note that
-for paged responses, all pages will be concatenated together into the return value by default (see
-below).
+Every call returns a `Promise`.  The returned values are exactly as documented in the GitHub API,
+except that requests with option `{boolean: true}` will return `true` or `false` instead (sorry, no
+way to automate it).  Note that for paged responses, all pages will be concatenated together into
+the return value by default (see below).
 
 After every request, you can access `rateLimit` and `rateLimitRemaining` (or `searchRateLimit` and
 `searchRateLimitRemaining` if it's a search request, or `graphRateLimit` and
@@ -132,3 +147,5 @@ unexpected 4xx or 5xx response.  If it's an error response, the error object wil
 be rejected as usual (or the request retried in some special cases, like socket hang ups and abuse quota 403s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
 * `maxTries`: The maximum number of times that a request will be tried (including the original call) if `onError` keeps returning `Hubkit.RETRY`.
 * `onSend`: A function to be called before every individual request gets sent to GitHub.  The sole argument will be a string indicating the reason for the request: `initial` for the initial request, `page` for an automatic next page request (if the `allPages` option is on), and `retry` for an explicit or automatic retry.  The function can return a duration in milliseconds that will override the timeout provided in the options (if any).  The function can also return a promise for the above, in which case the request will be held until the promise is resolved.
+* `gheVersion`: A string representing the version of the GitHub Enterprise server you're making calls to.  You can retrieve it via a request to `/meta`.  Ignored if your host is `https://api.github.com` (and all `#ghe` preprocessing directives pass automatically).  Otherwise, if a `#ghe` directive is encountered and `gheVersion` is not set then an error is thrown.
+* `scopes`: An array of strings representing all the scopes granted to the user's token.  (Note that some scopes imply others, but Hubkit doesn't expand these internally &mdash; you might want to do so yourself.)  If a `#scope` directive is encountered and `scopes` is not set then an error is thrown.
