@@ -102,6 +102,8 @@ After every request, you can access `rateLimit` and `rateLimitRemaining` (or `se
 quotas, and `oAuthScopes` to see what scopes your authorization entitles you to, on your `metadata`
 object (see below) or on `Hubkit` if you didn't set one.
 
+You can augment a Hubkit instance by calling `gh.scope({...moreOptions})` to return a new instance that combines both sets of options.
+
 #### Options reference
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
@@ -123,6 +125,7 @@ default cache is set to hold ~10MB of the measured bytes amount (so ~30-40MB of 
 * `maxItemSizeRatio`: The maximum ratio of the size of any single item to the size of the cache, to avoid blowing away the entire cache with one huge item.  The default is set to 0.1, limiting each item to at most 1/10th the max size of the cache.
 * `stats`: Reports the cache hit rate via `hitRate` (number of items hit / total attempted) and `hitSizeRate` (total size of items hit / total attempted) attributes.  You can `reset()` the stats to start counting from scratch again.  A default instance is set on `Hubkit.defaults` but you can also assign a `new Hubkit.Stats()` to a `Hubkit` instance if you prefer.
 * `immutable`: If true, indicates that the return value for this call is immutable, so if it's available in the cache it can be reused without sending a request to GitHub to check freshness.
+* `stale`: If true, any cached value is considered acceptable, even if it has expired.
 * `method`: The HTTP method to use for the request.
 * `media`: A GitHub-specific [media type](https://developer.github.com/v3/media/) for the response
 content.  Valid values are:

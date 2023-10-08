@@ -90,6 +90,11 @@ if (typeof require !== 'undefined') {
   Hubkit.RETRY = {};  // marker object
   Hubkit.DONT_RETRY = {};  // marker object
 
+  Hubkit.prototype.scope = function(options) {
+    options = defaults({}, options);
+    return new Hubkit(defaults(options, this.defaultOptions));
+  };
+
   Hubkit.prototype.request = function(path, options) {
     var self = this;
     options = defaults({}, options);
@@ -102,7 +107,7 @@ if (typeof require !== 'undefined') {
       cacheKey = computeCacheKey(path, options);
       cachedItem = checkCache(options, cacheKey);
       if (cachedItem && (
-        options.immutable ||
+        options.immutable || options.stale ||
         !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
       )) {
         if (options.stats) {
