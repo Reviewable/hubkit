@@ -8,7 +8,8 @@ export default class Hubkit {
   defaultOptions: Options;
   request(path: string, options?: Options): Promise<any>;
   graph(query: string, options?: Options & {variables?: Record<string, any>}): Promise<any>;
-  interpolate(string: string, options?: Record<string, any>)
+  interpolate(string: string, options?: Record<string, any>);
+  scope(options: Options);
 }
 
 interface Options {
@@ -25,6 +26,7 @@ interface Options {
   boolean?: boolean;
   immutable?: boolean;
   fresh?: boolean;
+  stale?: boolean;
   responseType?: string;
   maxTries?: number;
   timeout?: number;
