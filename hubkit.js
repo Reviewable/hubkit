@@ -81,7 +81,7 @@ if (typeof require !== 'undefined') {
   Hubkit.defaults = {
     method: 'GET', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3,
     maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats(), agent: false,
-    corsSuccessFlags: {}, gheVersion: undefined, scopes: undefined
+    corsSuccessFlags: {}, gheVersion: undefined, scopes: undefined, apiVersion: undefined
   };
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
@@ -624,6 +624,7 @@ if (typeof require !== 'undefined') {
     if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
       config.params['_nocache'] = Math.round(Math.random() * 1000000);
     }
+    if (options.apiVersion) config.headers['X-GitHub-Api-Version'] = options.apiVersion;
     /* eslint-enable dot-notation */
   }
 

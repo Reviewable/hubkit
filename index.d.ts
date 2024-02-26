@@ -41,6 +41,7 @@ interface Options {
   token?: string;
   clientId?: string;
   clientSecret?: string;
+  apiVersion?: string;
 
   [key: string]: any;
 
