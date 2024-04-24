@@ -1,15 +1,15 @@
-export default class Hubkit {
+export default class Hubkit<TParams extends Parameters = {}> {
   static defaults: Options & {stats: Stats};
   static Stats: StatsClass;
   static readonly RETRY: unique symbol;
   static readonly DONT_RETRY: unique symbol;
 
-  constructor(options?: Options);
-  defaultOptions: Options;
-  request(path: string, options?: Options): Promise<any>;
+  constructor(options?: Options & TParams);
+  defaultOptions: Options & TParams;
+  request(path: string, options?: Options & Parameters): Promise<any>;
   graph(query: string, options?: Options & {variables?: Record<string, any>}): Promise<any>;
-  interpolate(string: string, options?: Record<string, any>);
-  scope(options: Options);
+  interpolate(string: string, options?: Parameters);
+  scope<Tsource extends Parameters>(options: Options & Tsource): Hubkit<TParams & Tsource>;
 }
 
 interface Options {
@@ -43,8 +43,6 @@ interface Options {
   clientSecret?: string;
   apiVersion?: string;
 
-  [key: string]: any;
-
   onSend?(cause: 'initial' | 'retry' | 'page'): number;  // returns timeout
   onError?(error: Error & {
     status?: number,
@@ -59,6 +57,10 @@ interface Options {
     timeout?: boolean,
   }):
     undefined | typeof Hubkit.RETRY | typeof Hubkit.DONT_RETRY | any;
+}
+
+interface Parameters {
+  [key: string]: any;
 }
 
 interface StatsClass {
