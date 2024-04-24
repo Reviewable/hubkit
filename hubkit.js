@@ -500,16 +500,9 @@ if (typeof require !== 'undefined') {
       function(match, directive, arg, contents) {
         switch (directive) {
           case 'ghe':
-            if (fullOptions.host === 'https://api.github.com') return contents;
+            if (satisfiesGheVersion(fullOptions, arg)) return contents;
             if (!fullOptions.gheVersion) {
               throw new Error('Hubkit unable to process #ghe directive: gheVersion missing');
-            }
-            var neededVersion = arg.split('.').map(function(x) {return parseInt(x, 10);});
-            var actualVersion =
-              fullOptions.gheVersion.split('.').map(function(x) {return parseInt(x, 10);});
-            if (actualVersion[0] > neededVersion[0] ||
-                actualVersion[0] === neededVersion[0] && actualVersion[1] >= neededVersion[1]) {
-              return contents;
             }
             return '';
           case 'scope':
@@ -624,7 +617,9 @@ if (typeof require !== 'undefined') {
     if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
       config.params['_nocache'] = Math.round(Math.random() * 1000000);
     }
-    if (options.apiVersion) config.headers['X-GitHub-Api-Version'] = options.apiVersion;
+    if (options.apiVersion && satisfiesGheVersion(options, '3.9')) {
+      config.headers['X-GitHub-Api-Version'] = options.apiVersion;
+    }
     /* eslint-enable dot-notation */
   }
 
@@ -681,6 +676,15 @@ if (typeof require !== 'undefined') {
 
   function checkCache(options, cacheKey) {
     return options.cache.get(cacheKey);
+  }
+
+  function satisfiesGheVersion(options, minVersion) {
+    if (options.host === 'https://api.github.com') return true;
+    if (!options.gheVersion) return false;
+    var neededVersion = minVersion.split('.').map(function(x) {return parseInt(x, 10);});
+    var actualVersion = options.gheVersion.split('.').map(function(x) {return parseInt(x, 10);});
+    return actualVersion[0] > neededVersion[0] ||
+      actualVersion[0] === neededVersion[0] && actualVersion[1] >= neededVersion[1];
   }
 
   return Hubkit;
