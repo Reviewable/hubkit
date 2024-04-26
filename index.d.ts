@@ -8,8 +8,8 @@ export default class Hubkit {
   defaultOptions: Options;
   request(path: string, options?: Options): Promise<any>;
   graph(query: string, options?: Options & {variables?: Record<string, any>}): Promise<any>;
-  interpolate(string: string, options?: Record<string, any>);
-  scope(options: Options);
+  interpolate(string: string, options?: Record<string, any>): string;
+  scope(options: Options): Hubkit;
 }
 
 interface Options {
@@ -45,6 +45,7 @@ interface Options {
 
   [key: string]: any;
 
+  onRequest?(options: Options): void | Promise<void>;  // can mutate options
   onSend?(cause: 'initial' | 'retry' | 'page'): number;  // returns timeout
   onError?(error: Error & {
     status?: number,
