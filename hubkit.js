@@ -383,10 +383,7 @@ if (typeof require !== 'undefined') {
                 }
                 if (paginated) {
                   var endCursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
-                  if (!result) {
-                    result = res.data.data;
-                    delete root.pageInfo;
-                  } else {
+                  if (result) {
                     resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
                     for (var key in root) {
                       if (!Object.hasOwnProperty.call(root, key) ||
@@ -395,6 +392,9 @@ if (typeof require !== 'undefined') {
                       }
                       resultRoot[key] = root[key];
                     }
+                  } else {
+                    result = res.data.data;
+                    delete root.pageInfo;
                   }
                   if (endCursor) {
                     if (options.allPages) {
