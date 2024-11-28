@@ -224,9 +224,15 @@ if (typeof require !== 'undefined') {
               if (options.method === 'GET') config.params = Object.assign(config.params, body);
               else config.data = body;
             }
+            var received = false;
             axios(config).then(function(res) {
+              received = true;
+              if (options.onReceive) options.onReceive();
               onComplete(res, rawData);
-            }).catch(onError);
+            }).catch(function(e) {
+              if (options.onReceive && !received) options.onReceive();
+              onError(e);
+            });
           }).catch(function(error) {
             reject(error);
           });

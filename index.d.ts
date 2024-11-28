@@ -47,6 +47,7 @@ interface Options {
 
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
   onSend?(cause: 'initial' | 'retry' | 'page'): number;  // returns timeout
+  onReceive?(): void;
   onError?(error: Error & {
     status?: number,
     data?: any,
