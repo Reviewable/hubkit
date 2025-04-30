@@ -503,6 +503,86 @@ if (typeof require !== 'undefined') {
     });
   };
 
+  var Directive = function(arg, body, options, hubkit) {
+    this.arg = arg;
+    this.body = body;
+    this.options = options;
+    this.hubkit = hubkit;
+  };
+  Directive.prototype.render = function() {
+    var body = this.body;
+    if (body === undefined) this.error('missing body');
+    return Promise.resolve(this.check()).then(function(result) {return result ? body : '';});
+  };
+  Directive.prototype.error = function(details) {
+    throw new Error('Hubkit unable to process #' + this.directive + ' directive: ' + details);
+  };
+
+  function GheDirective() {Directive.apply(this, arguments);}
+  Object.setPrototypeOf(GheDirective.prototype, Directive.prototype);
+  GheDirective.prototype.check = function() {
+    if (!this.options.gheVersion) this.error('gheVersion missing');
+    return satisfiesGheVersion(this.options, this.arg);
+  };
+
+  function ScopeDirective() {Directive.apply(this, arguments);}
+  Object.setPrototypeOf(ScopeDirective.prototype, Directive.prototype);
+  ScopeDirective.prototype.check = function() {
+    if (!this.options.scopes) this.error('scopes missing');
+    return this.options.scopes.includes(this.arg);
+  };
+
+  function ExistsDirective() {Directive.apply(this, arguments);}
+  Object.setPrototypeOf(ExistsDirective.prototype, Directive.prototype);
+  ExistsDirective.prototype.check = function() {
+    var match = this.arg.match(/([^.]*)(?:\.(.*))?/);
+    var type = match[1], field = match[2];
+    var self = this;
+    return reflectGraphQLType(type, this.hubkit).then(function(fields) {
+      if (field === undefined) return !!fields;
+      if (!fields) self.error('unknown type ' + type);
+      return fields.includes(field);
+    });
+  };
+
+  function FieldDirective() {Directive.apply(this, arguments);}
+  Object.setPrototypeOf(FieldDirective.prototype, Directive.prototype);
+  FieldDirective.prototype.render = function() {
+    var args = this.arg.split(',').map(function(s) {return s.trim();});
+    if (args.length < 2) this.error('expected at least 2 arguments');
+    var self = this;
+    return reflectGraphQLType(args[0], this.hubkit).then(function(fields) {
+      if (!fields) self.error('unknown type ' + args[0]);
+      for (var i = 1; i < args.length; i++) {
+        if (fields.includes(args[i])) return args[i];
+      }
+      return '';
+    });
+  };
+
+  var directives = {
+    ghe: GheDirective,
+    scope: ScopeDirective,
+    exists: ExistsDirective,
+    field: FieldDirective
+  };
+
+  Object.keys(directives).forEach(function(directive) {
+    directives[directive].prototype.directive = directive;
+  });
+
+  function replaceAsync(str, regex, replacerFn) {
+    var promises = [];
+    str.replace(regex, function(match) {
+      var args = arguments;
+      promises.push(new Promise(function(resolve) {resolve(replacerFn.apply(null, args));}));
+      return match;
+    });
+    return Promise.all(promises).then(function(substitutions) {
+      return str.replace(regex, function() {return substitutions.shift();});
+    });
+  }
+
   Hubkit.prototype.graph = function(query, options) {
     options = options || {};
     var self = this;
@@ -510,31 +590,19 @@ if (typeof require !== 'undefined') {
     return Promise.resolve(
       fullOptions.onRequest && fullOptions.onRequest(fullOptions)
     ).then(function() {
-      query = query.replace(
-        /#(\w+)\s*\(([^)]+)\)\s*\{([\s\S]*?)#\}/g,
-        function(match, directive, arg, contents) {
-          switch (directive) {
-            case 'ghe':
-              if (satisfiesGheVersion(fullOptions, arg)) return contents;
-              if (!fullOptions.gheVersion) {
-                throw new Error('Hubkit unable to process #ghe directive: gheVersion missing');
-              }
-              return '';
-            case 'scope':
-              if (!fullOptions.scopes) {
-                throw new Error('Hubkit unable to process #scope directive: scopes missing');
-              }
-              return fullOptions.scopes.includes(arg) ? contents : '';
-            default:
-              throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
+      return replaceAsync(query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
+        function(match, directive, arg, body) {
+          if (!Object.prototype.hasOwnProperty.call(directives, directive)) {
+            throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
           }
-        }
-      );
-      if (/#(\w+)\s*\(([^)]+)\)/.test(query)) {
+          return (new directives[directive](arg, body, fullOptions, self)).render();
+        });
+    }).then(function(finalQuery) {
+      if (/#(\w+)\s*\(([^)]+)\)/.test(finalQuery)) {
         throw new Error(
-          'Hubkit preprocessing directives may not have been correctly terminated: ' + query);
+          'Hubkit preprocessing directives may not have been correctly terminated: ' + finalQuery);
       }
-      var postOptions = defaults({body: {query: query}}, options);
+      var postOptions = defaults({body: {query: finalQuery}}, options);
       delete postOptions.onRequest;
       postOptions.host =
         options.graphHost || options.host || self.defaultOptions.graphHost ||
@@ -702,6 +770,24 @@ if (typeof require !== 'undefined') {
     var actualVersion = options.gheVersion.split('.').map(function(x) {return parseInt(x, 10);});
     return actualVersion[0] > neededVersion[0] ||
       actualVersion[0] === neededVersion[0] && actualVersion[1] >= neededVersion[1];
+  }
+
+  var schemaCache = {};
+  function reflectGraphQLType(type, hubkit) {
+    if (Object.prototype.hasOwnProperty.call(schemaCache, type)) return schemaCache[type];
+    var fieldsPromise = schemaCache[type] = hubkit.graph(
+      'query ($type: String!) { __type(name: $type) { fields { name } } }',
+      {variables: {type: type}}
+    ).then(
+      function(result) {
+        return result.__type &&
+          (result.__type.fields || []).map(function(field) {return field.name;});
+      },
+      function(error) {
+        delete schemaCache[type];
+        throw error;
+      });
+    return fieldsPromise;
   }
 
   return Hubkit;
