@@ -62,7 +62,14 @@ options object passed to the constructor.  The method can be specified either to
 or as a `{method: 'GET'}` option (the inline one takes precedence, and `GET` is the default if
 nothing else is found).
 
-GraphQL queries are first run through a preprocessor that lets you exclude clauses if the GHE version is too old or the user's authorization lacks a specific scope.  This is useful since GraphQL forbids references to fields not in the schema, and GHE servers in the field are often months or years behind `github.com` in that respect.  To use this facility you need to include `gheVersion` or `scopes` properties in the options (see below) and form your query like this:
+GraphQL queries are first run through a preprocessor that supports following directives:
+
+* `#ghe(minVersion)`: The following block is excluded if the GHE version is too old.
+* `#scope(scope)`: The following block is excluded if the user's authorization lacks the specified scope.
+* `#pick(type, ...fields)`: Gets substituted with the first given field that exists in the schema for the given type.
+
+This is useful since GraphQL forbids references to fields not in the schema, and GHE servers in the field are often months or years behind `github.com` in that respect.  To use the `ghe` or `scope` directives you need to include the `gheVersion` or `scopes` properties respectively in the options (see below). Here is an example demonstrating each directive:
+
 ```javascript
 gh.graph(`
   query ($owner: String!, $repo: String!, $number: Int!) {
@@ -75,7 +82,10 @@ gh.graph(`
         reviewRequests {
           nodes {
             requestedReviewer {
-              ...on User {login, name}
+              ...on User {
+                login, name,
+                id: #pick(User, fullDatabaseId, databaseId)
+              }
               #scope(read:org) {
                 ...on Team {combinedSlug, name}
               #}

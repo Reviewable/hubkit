@@ -510,40 +510,63 @@ if (typeof require !== 'undefined') {
     return Promise.resolve(
       fullOptions.onRequest && fullOptions.onRequest(fullOptions)
     ).then(function() {
+      var asyncSubstitutions = [];
       query = query.replace(
-        /#(\w+)\s*\(([^)]+)\)\s*\{([\s\S]*?)#\}/g,
+        /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
         function(match, directive, arg, contents) {
+          var expectsBody = true;
+          var substitution = '';
           switch (directive) {
             case 'ghe':
-              if (satisfiesGheVersion(fullOptions, arg)) return contents;
               if (!fullOptions.gheVersion) {
                 throw new Error('Hubkit unable to process #ghe directive: gheVersion missing');
               }
-              return '';
+              if (satisfiesGheVersion(fullOptions, arg)) substitution = contents;
+              break;
             case 'scope':
               if (!fullOptions.scopes) {
                 throw new Error('Hubkit unable to process #scope directive: scopes missing');
               }
-              return fullOptions.scopes.includes(arg) ? contents : '';
+              if (fullOptions.scopes.includes(arg)) substitution = contents;
+              break;
+            case 'pick':
+              expectsBody = false;
+              var args = arg.split(',').map(function(s) {return s.replace(/^\s+|\s+$/g, '');});
+              if (args.length < 2) {
+                throw new Error(
+                  'Hubkit unable to process #pick directive: expected at least 2 arguments');
+              }
+              substitution = '#async(' + match.index + ')';
+              asyncSubstitutions.push(pickSupportedField(self, args[0], args.slice(1)).then(
+                function(results) {query = query.replace(substitution, results[1]);}));
+              break;
             default:
               throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
           }
+          if (expectsBody !== !!contents) {
+            throw new Error(
+              'Hubkit unable to process #' + directive + ' directive: ' +
+              (expectsBody ? 'missing body' : 'unexpected body'));
+          }
+          return substitution;
         }
       );
-      if (/#(\w+)\s*\(([^)]+)\)/.test(query)) {
-        throw new Error(
-          'Hubkit preprocessing directives may not have been correctly terminated: ' + query);
-      }
-      var postOptions = defaults({body: {query: query}}, options);
-      delete postOptions.onRequest;
-      postOptions.host =
-        options.graphHost || options.host || self.defaultOptions.graphHost ||
-        self.defaultOptions.host;
-      if (options.variables) {
-        postOptions.body.variables = options.variables;
-        delete postOptions.variables;
-      }
-      return self.request('POST /graphql', postOptions);
+      return Promise.all(asyncSubstitutions).then(function() {
+        if (/#(\w+)\s*\(([^)]+)\)/.test(query)) {
+          throw new Error(
+            'Hubkit preprocessing directives may not have been correctly terminated: ' + query);
+        }
+        var postOptions = defaults({body: {query: query}}, options);
+        delete postOptions.onRequest;
+        postOptions.host =
+          options.graphHost || options.host || self.defaultOptions.graphHost ||
+          self.defaultOptions.host;
+        if (options.variables) {
+          postOptions.body.variables = options.variables;
+          delete postOptions.variables;
+        }
+        return self.request('POST /graphql', postOptions);
+      });
     });
   };
 
@@ -702,6 +725,30 @@ if (typeof require !== 'undefined') {
     var actualVersion = options.gheVersion.split('.').map(function(x) {return parseInt(x, 10);});
     return actualVersion[0] > neededVersion[0] ||
       actualVersion[0] === neededVersion[0] && actualVersion[1] >= neededVersion[1];
+  }
+
+  var schemaCache = {};
+  function pickSupportedField(self, type, fields) {
+    var fieldsPromise;
+    if (Object.prototype.hasOwnProperty.call(schemaCache, type)) {
+      fieldsPromise = schemaCache[type];
+    } else {
+      fieldsPromise = schemaCache[type] = self.graph(
+        'query (type: String!) { __type(name: $type) { fields { name } } }',
+        {variables: {type: type}}
+      ).then(function(result) {
+        if (!result.__type) return [];
+        return result.__type.fields.map(function(field) {return field.name;});
+      });
+    }
+    return fieldsPromise.then(function(schemaFields) {
+      for (var i = 0; i < fields.length; i++) {
+        if (schemaFields.includes(fields[i])) return fields[i];
+      }
+      throw new Error(
+        'Hubkit unable to process #pick directive: None of the fields ' +
+        fields.join(', ') + ' exist on type ' + type);
+    });
   }
 
   return Hubkit;
