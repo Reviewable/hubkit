@@ -11,7 +11,6 @@ export default [
         Promise: false,
         setTimeout: false
       },
-      ecmaVersion: 5,
       sourceType: 'script'
     },
     rules: {
