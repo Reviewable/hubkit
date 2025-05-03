@@ -531,7 +531,7 @@ if (typeof require !== 'undefined') {
                   if (res.status === 200 && (res.headers.etag || res.headers['cache-control']) &&
                       size <= options.cache.max * options.maxItemSizeRatio) {
                     options.cache.set(cacheKey, {
-                      value: result, eTag: res.headers.etag, status: res.status, size: size,
+                      value: result, eTag: res.headers.etag, status: res.status, size,
                       expiry: parseExpiry(res)
                     });
                   } else {
@@ -760,8 +760,7 @@ if (typeof require !== 'undefined') {
   function reflectGraphQLType(type, hubkit) {
     if (Object.prototype.hasOwnProperty.call(schemaCache, type)) return schemaCache[type];
     const fieldsPromise = schemaCache[type] = hubkit.graph(
-      'query ($type: String!) { __type(name: $type) { fields { name } } }',
-      {variables: {type: type}}
+      'query ($type: String!) { __type(name: $type) { fields { name } } }', {variables: {type}}
     ).then(
       result => {
         return result.__type && (result.__type.fields || []).map(field => field.name);
