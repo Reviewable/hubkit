@@ -23,10 +23,9 @@ if (typeof require !== 'undefined') {
       this.hubkit = hubkit;
     }
 
-    render() {
-      const body = this.body;
-      if (body === undefined) this.error('missing body');
-      return Promise.resolve(this.check()).then(result => result ? body : '');
+    async render() {
+      if (this.body === undefined) this.error('missing body');
+      return await this.check() ? this.body : '';
     }
 
     error(details) {
@@ -49,28 +48,26 @@ if (typeof require !== 'undefined') {
   }
 
   class ExistsDirective extends Directive {
-    check() {
+    async check() {
       const match = this.arg.match(/([^.]*)(?:\.(.*))?/);
       const type = match[1], field = match[2];
-      return reflectGraphQLType(type, this.hubkit).then(fields => {
-        if (field === undefined) return !!fields;
-        if (!fields) this.error('unknown type ' + type);
-        return fields.includes(field);
-      });
+      const fields = await reflectGraphQLType(type, this.hubkit);
+      if (field === undefined) return !!fields;
+      if (!fields) this.error('unknown type ' + type);
+      return fields.includes(field);
     }
   }
 
   class FieldDirective extends Directive {
-    render() {
+    async render() {
       const args = this.arg.split(',').map(str => str.trim());
       if (args.length < 2) this.error('expected at least 2 arguments');
-      return reflectGraphQLType(args[0], this.hubkit).then(fields => {
-        if (!fields) this.error('unknown type ' + args[0]);
-        for (const field of args.slice(1)) {
-          if (fields.includes(field)) return field;
-        }
-        return '';
-      });
+      const fields = await reflectGraphQLType(args[0], this.hubkit);
+      if (!fields) this.error('unknown type ' + args[0]);
+      for (const field of args.slice(1)) {
+        if (fields.includes(field)) return field;
+      }
+      return '';
     }
   }
 
@@ -142,445 +139,441 @@ if (typeof require !== 'undefined') {
       return new Hubkit(defaults(options, this.defaultOptions));
     }
 
-    request(path, options) {
+    async request(path, options) {
       const self = this;
       options = defaults({}, options);
       defaults(options, this.defaultOptions);
 
-      return Promise.resolve(options.onRequest && options.onRequest(options)).then(() => {
-        path = interpolatePath(path, options);
+      if (options.onRequest) await options.onRequest(options);
+      path = interpolatePath(path, options);
 
-        let cachedItem = null, cacheKey, cacheable = options.cache && options.method === 'GET';
-        if (cacheable) {
-          // Pin cached value, in case it gets evicted during the request
-          cacheKey = computeCacheKey(path, options);
-          cachedItem = checkCache(options, cacheKey);
-          if (cachedItem && (
-            options.immutable || options.stale ||
-            !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
-          )) {
-            if (options.stats) {
-              if (cachedItem.promise) {
-                cachedItem.promise.then(() => {
-                  const entry = options.cache.get(cacheKey);
-                  options.stats.record(true, entry ? entry.size : 1);
-                }).catch(() => {
-                  options.stats.record(true);
-                });
-              } else {
-                options.stats.record(true, cachedItem.size);
+      let cachedItem = null, cacheKey, cacheable = options.cache && options.method === 'GET';
+      if (cacheable) {
+        // Pin cached value, in case it gets evicted during the request
+        cacheKey = computeCacheKey(path, options);
+        cachedItem = checkCache(options, cacheKey);
+        if (cachedItem && (
+          options.immutable || options.stale ||
+          !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
+        )) {
+          if (options.stats) {
+            if (cachedItem.promise) {
+              cachedItem.promise.then(() => {
+                const entry = options.cache.get(cacheKey);
+                options.stats.record(true, entry ? entry.size : 1);
+              }).catch(() => {
+                options.stats.record(true);
+              });
+            } else {
+              options.stats.record(true, cachedItem.size);
+            }
+          }
+          return cachedItem.promise || Promise.resolve(cachedItem.value);
+        }
+      }
+
+      const requestPromise = new Promise((resolve, reject) => {
+        let result, tries = 0;
+        send(options.body, options._cause || 'initial');
+
+        function handleError(error, res) {
+          error.request = {method: options.method, url: path, headers: res && res.headers};
+          if (error.request.headers) delete error.request.headers.authorization;
+          if (cacheable && res && res.status) {
+            options.cache.del(cacheKey);
+            if (options.stats) options.stats.record(false);
+          }
+          // If the request failed due to CORS, it may be because it was both preflighted and
+          // redirected.  Attempt to recover by reissuing it as a simple request without
+          // preflight, which requires getting rid of all extraneous headers.
+          if (cacheable && /Network Error/.test(error.originalMessage)) {
+            cacheable = false;
+            retry();
+            return;
+          }
+          let value;
+          if (options.onError) value = options.onError(error);
+          if (value === undefined) {
+            if (NETWORK_ERROR_CODES.indexOf(error.code) >= 0 ||
+              [500, 502, 503, 504].indexOf(res && res.status) >= 0 ||
+              error.originalMessage === 'socket hang up' ||
+              error.originalMessage === 'Unexpected end of input'
+            ) {
+              value = Hubkit.RETRY;
+              options.agent = false;
+            } else if (res && res.status === 403 && res.headers['retry-after']) {
+              try {
+                error.retryDelay =
+                  parseInt(res.headers['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
+                if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
+              } catch (e) {
+                // ignore, don't retry request
+              }
+            } else if (res && res.status === 403 &&
+                res.headers['x-ratelimit-remaining'] === '0' &&
+                res.headers['x-ratelimit-reset']) {
+              try {
+                error.retryDelay =
+                  Math.max(0, parseInt(res.headers['x-ratelimit-reset'], 10) * 1000 - Date.now());
+                if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
+              } catch (e) {
+                // ignore, don't retry request
               }
             }
-            return cachedItem.promise || Promise.resolve(cachedItem.value);
+          }
+          if (value === Hubkit.RETRY && tries < options.maxTries) {
+            if (error.retryDelay) setTimeout(retry, error.retryDelay); else retry();
+          } else if (value === undefined ||
+              value === Hubkit.RETRY || value === Hubkit.DONT_RETRY) {
+            reject(error);
+          } else {
+            resolve(value);
           }
         }
 
-        const requestPromise = new Promise((resolve, reject) => {
-          let result, tries = 0;
-          send(options.body, options._cause || 'initial');
+        function retry() {
+          if (cacheable) cachedItem = checkCache(options, cacheKey);
+          send(options.body, 'retry');
+        }
 
-          function handleError(error, res) {
-            error.request = {method: options.method, url: path, headers: res && res.headers};
-            if (error.request.headers) delete error.request.headers.authorization;
-            if (cacheable && res && res.status) {
-              options.cache.del(cacheKey);
-              if (options.stats) options.stats.record(false);
-            }
-            // If the request failed due to CORS, it may be because it was both preflighted and
-            // redirected.  Attempt to recover by reissuing it as a simple request without
-            // preflight, which requires getting rid of all extraneous headers.
-            if (cacheable && /Network Error/.test(error.originalMessage)) {
-              cacheable = false;
-              retry();
-              return;
-            }
-            let value;
-            if (options.onError) value = options.onError(error);
-            if (value === undefined) {
-              if (NETWORK_ERROR_CODES.indexOf(error.code) >= 0 ||
-                [500, 502, 503, 504].indexOf(res && res.status) >= 0 ||
-                error.originalMessage === 'socket hang up' ||
-                error.originalMessage === 'Unexpected end of input'
-              ) {
-                value = Hubkit.RETRY;
-                options.agent = false;
-              } else if (res && res.status === 403 && res.headers['retry-after']) {
-                try {
-                  error.retryDelay =
-                    parseInt(res.headers['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
-                  if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-                } catch (e) {
-                  // ignore, don't retry request
+        async function send(body, cause) {
+          tries++;
+          try {
+            const timeout = options.onSend && await options.onSend(cause) || options.timeout;
+            let rawData;
+            const config = {
+              url: path,
+              method: options.method,
+              timeout: timeout || 0,
+              params: {},
+              headers: {},
+              transformResponse: [data => {
+                rawData = data;
+                // avoid axios default transform for 'raw'
+                // https://github.com/axios/axios/issues/907
+                if (options.media !== 'raw') {
+                  return axios.defaults.transformResponse[0](data);
                 }
-              } else if (res && res.status === 403 &&
-                  res.headers['x-ratelimit-remaining'] === '0' &&
-                  res.headers['x-ratelimit-reset']) {
-                try {
-                  error.retryDelay =
-                    Math.max(0, parseInt(res.headers['x-ratelimit-reset'], 10) * 1000 - Date.now());
-                  if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-                } catch (e) {
-                  // ignore, don't retry request
-                }
-              }
+                return data;
+              }]
+            };
+            addHeaders(config, options, cachedItem);
+
+            // If we're paging through a query, the path contains the full query string already so
+            // we need to wipe out any additional query params inserted by addHeaders above.
+            // Also, if we retry a page query the cause will become 'retry', so explicitly check
+            // options._cause as well.
+            if (cause === 'page' || options._cause === 'page') config.params = {};
+
+            if (body) {
+              if (options.method === 'GET') config.params = Object.assign(config.params, body);
+              else config.data = body;
             }
-            if (value === Hubkit.RETRY && tries < options.maxTries) {
-              if (error.retryDelay) setTimeout(retry, error.retryDelay); else retry();
-            } else if (value === undefined ||
-                value === Hubkit.RETRY || value === Hubkit.DONT_RETRY) {
-              reject(error);
-            } else {
-              resolve(value);
-            }
-          }
-
-          function retry() {
-            if (cacheable) cachedItem = checkCache(options, cacheKey);
-            send(options.body, 'retry');
-          }
-
-          function send(body, cause) {
-            tries++;
-            Promise.resolve(options.onSend && options.onSend(cause)).then(timeout => {
-              timeout = timeout || options.timeout;
-
-              let rawData;
-              const config = {
-                url: path,
-                method: options.method,
-                timeout: timeout || 0,
-                params: {},
-                headers: {},
-                transformResponse: [data => {
-                  rawData = data;
-                  // avoid axios default transform for 'raw'
-                  // https://github.com/axios/axios/issues/907
-                  if (options.media !== 'raw') {
-                    return axios.defaults.transformResponse[0](data);
-                  }
-                  return data;
-                }]
-              };
-              addHeaders(config, options, cachedItem);
-
-              // If we're paging through a query, the path contains the full query string already so
-              // we need to wipe out any additional query params inserted by addHeaders above.
-              // Also, if we retry a page query the cause will become 'retry', so explicitly check
-              // options._cause as well.
-              if (cause === 'page' || options._cause === 'page') config.params = {};
-
-              if (body) {
-                if (options.method === 'GET') config.params = Object.assign(config.params, body);
-                else config.data = body;
-              }
-              let received = false;
-              axios(config).then(res => {
-                received = true;
-                if (options.onReceive) options.onReceive();
-                onComplete(res, rawData);
-              }).catch(e => {
-                if (options.onReceive && !received) options.onReceive();
-                onError(e);
-              });
-            }).catch(reject);
-          }
-
-          function formatError(origin, status, message) {
-            if (!message) {
-              message = status;
-              status = null;
-            }
-            const prefix = origin + ' error' + (status ? ' ' + status : '');
-            return prefix + ' on ' + options.method + ' ' + path.replace(/\?.*/, '') + ': ' +
-              message;
-          }
-
-          function onError(error) {
-            // If we get an error response without a status, then it's not a real error coming back
-            // from the server but some kind of synthetic response Axios concocted for us.  Treat it
-            // as a generic network error.
-            if (error.response && error.response.status) return onComplete(error.response);
-
-            if ((/Network Error/.test(error.message) || error.message === '0') &&
-                (options.corsSuccessFlags[options.host] ||
-                  !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
-            ) {
-              error.message = 'Request terminated abnormally, network may be offline';
-            }
-            if (error.message === 'maxContentLength size of -1 exceeded') error.message = 'aborted';
-            error.originalMessage = error.message;
-            error.message = formatError('Hubkit', error.message);
-            error.fingerprint =
-              ['Hubkit', options.method, options.pathPattern, error.originalMessage];
-            handleError(error);
-          }
-
-          function onComplete(res, rawData) {
-            extractMetadata(path, res, options.metadata);
-            if (res.headers['access-control-allow-origin']) {
-              options.corsSuccessFlags[options.host] = true;
-            }
-
+            let received = false;
             try {
-              if (res.status === 304) {
-                cachedItem.expiry = parseExpiry(res);
-                if (options.stats) options.stats.record(true, cachedItem.size);
-                resolve(cachedItem.value);
-              } else if (
-                !(res.status >= 200 && res.status < 300 ||
-                  options.boolean && res.status === 404 && res.data &&
-                    res.data.message === 'Not Found'
-                ) || res.data && res.data.errors
-              ) {
-                if (cacheable) {
-                  options.cache.del(cacheKey);
-                  if (options.stats) options.stats.record(false);
-                }
-                let status = res.status;
-                if (res.data && res.data.errors && res.status === 200) {
-                  if (res.data.errors.every(error =>
-                    error.type === 'RATE_LIMITED' || error.type === 'FORBIDDEN'
-                  )) status = 403;
-                  else if (res.data.errors.every(error =>
-                    error.type === 'NOT_FOUND'
-                  )) status = 404;
-                  else if (res.data.errors.some(error =>
-                    /^something went wrong/i.test(error.message)
-                  )) status = 500;
-                  else status = 400;
-                }
-                if (status === 404 && typeof options.ifNotFound !== 'undefined') {
-                  resolve(options.ifNotFound);
-                } else if (status === 410 && typeof options.ifGone !== 'undefined') {
-                  resolve(options.ifGone);
-                } else {
-                  let errors = '';
-                  if (res.data && res.data.errors) {
-                    errors = [];
-                    for (const errorItem of res.data.errors) {
-                      if (errorItem.message) {
-                        errors.push(errorItem.message);
-                      } else if (errorItem.field && errorItem.code) {
-                        errors.push('field ' + errorItem.field + ' ' + errorItem.code);
-                      } else if (typeof errorItem === 'string') {
-                        errors.push(errorItem);
-                      }
-                    }
-                    errors = errors.join('; ');
-                    if (res.data.message && errors) errors = ' (' + errors + ')';
-                  }
-                  const statusError = new Error(
-                    formatError('GitHub', status, (res.data && res.data.message || '') + errors)
-                  );
-                  statusError.status = status;
-                  if (res.data && res.data.errors) statusError.errors = res.data.errors;
-                  if (res.data && res.data.data) statusError.data = res.data.data;
-                  statusError.method = options.method;
-                  if (options.body && options.body.query && /^\s*query/.test(options.body.query)) {
-                    statusError.method = 'GET';
-                  }
-                  statusError.path = path;  // This is the fully expanded URL at this point.
-                  statusError.pathPattern = options.pathPattern;
-                  statusError.response = res;
-                  if (options.logTag) statusError.logTag = options.logTag;
-                  statusError.fingerprint =
-                    ['Hubkit', options.method, options.logTag || options.pathPattern, '' + status];
-                  handleError(statusError, res);
-                }
-              } else if (options.media === 'raw' && !(
-                /^(?:text\/plain|application\/octet-stream) *;?/.test(res.headers['content-type'])
-              )) {
-                // retry if github disregards 'raw'
-                handleError(new Error(
-                  formatError('Hubkit', 'GitHub disregarded the \'raw\' media type')
-                ), res);
+              const res = await axios(config);
+              received = true;
+              if (options.onReceive) options.onReceive();
+              onComplete(res, rawData);
+            } catch (e) {
+              if (options.onReceive && !received) options.onReceive();
+              onError(e);
+            }
+          } catch (error) {
+            reject(error);
+          }
+        }
+
+        function formatError(origin, status, message) {
+          if (!message) {
+            message = status;
+            status = null;
+          }
+          const prefix = origin + ' error' + (status ? ' ' + status : '');
+          return prefix + ' on ' + options.method + ' ' + path.replace(/\?.*/, '') + ': ' +
+            message;
+        }
+
+        function onError(error) {
+          // If we get an error response without a status, then it's not a real error coming back
+          // from the server but some kind of synthetic response Axios concocted for us.  Treat it
+          // as a generic network error.
+          if (error.response && error.response.status) return onComplete(error.response);
+
+          if ((/Network Error/.test(error.message) || error.message === '0') &&
+              (options.corsSuccessFlags[options.host] ||
+                !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
+          ) {
+            error.message = 'Request terminated abnormally, network may be offline';
+          }
+          if (error.message === 'maxContentLength size of -1 exceeded') error.message = 'aborted';
+          error.originalMessage = error.message;
+          error.message = formatError('Hubkit', error.message);
+          error.fingerprint =
+            ['Hubkit', options.method, options.pathPattern, error.originalMessage];
+          handleError(error);
+        }
+
+        function onComplete(res, rawData) {
+          extractMetadata(path, res, options.metadata);
+          if (res.headers['access-control-allow-origin']) {
+            options.corsSuccessFlags[options.host] = true;
+          }
+
+          try {
+            if (res.status === 304) {
+              cachedItem.expiry = parseExpiry(res);
+              if (options.stats) options.stats.record(true, cachedItem.size);
+              resolve(cachedItem.value);
+            } else if (
+              !(res.status >= 200 && res.status < 300 ||
+                options.boolean && res.status === 404 && res.data &&
+                  res.data.message === 'Not Found'
+              ) || res.data && res.data.errors
+            ) {
+              if (cacheable) {
+                options.cache.del(cacheKey);
+                if (options.stats) options.stats.record(false);
+              }
+              let status = res.status;
+              if (res.data && res.data.errors && res.status === 200) {
+                if (res.data.errors.every(error =>
+                  error.type === 'RATE_LIMITED' || error.type === 'FORBIDDEN'
+                )) status = 403;
+                else if (res.data.errors.every(error =>
+                  error.type === 'NOT_FOUND'
+                )) status = 404;
+                else if (res.data.errors.some(error =>
+                  /^something went wrong/i.test(error.message)
+                )) status = 500;
+                else status = 400;
+              }
+              if (status === 404 && typeof options.ifNotFound !== 'undefined') {
+                resolve(options.ifNotFound);
+              } else if (status === 410 && typeof options.ifGone !== 'undefined') {
+                resolve(options.ifGone);
               } else {
-                let nextUrl;
-                if (res.headers.link) {
-                  const match = /<([^>]+?)>;\s*rel="next"/.exec(res.headers.link);
-                  nextUrl = match && match[1];
-                  if (nextUrl && !(options.method === 'GET' || options.method === 'HEAD')) {
-                    throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
+                let errors = '';
+                if (res.data && res.data.errors) {
+                  errors = [];
+                  for (const errorItem of res.data.errors) {
+                    if (errorItem.message) {
+                      errors.push(errorItem.message);
+                    } else if (errorItem.field && errorItem.code) {
+                      errors.push('field ' + errorItem.field + ' ' + errorItem.code);
+                    } else if (typeof errorItem === 'string') {
+                      errors.push(errorItem);
+                    }
+                  }
+                  errors = errors.join('; ');
+                  if (res.data.message && errors) errors = ' (' + errors + ')';
+                }
+                const statusError = new Error(
+                  formatError('GitHub', status, (res.data && res.data.message || '') + errors)
+                );
+                statusError.status = status;
+                if (res.data && res.data.errors) statusError.errors = res.data.errors;
+                if (res.data && res.data.data) statusError.data = res.data.data;
+                statusError.method = options.method;
+                if (options.body && options.body.query && /^\s*query/.test(options.body.query)) {
+                  statusError.method = 'GET';
+                }
+                statusError.path = path;  // This is the fully expanded URL at this point.
+                statusError.pathPattern = options.pathPattern;
+                statusError.response = res;
+                if (options.logTag) statusError.logTag = options.logTag;
+                statusError.fingerprint =
+                  ['Hubkit', options.method, options.logTag || options.pathPattern, '' + status];
+                handleError(statusError, res);
+              }
+            } else if (options.media === 'raw' && !(
+              /^(?:text\/plain|application\/octet-stream) *;?/.test(res.headers['content-type'])
+            )) {
+              // retry if github disregards 'raw'
+              handleError(new Error(
+                formatError('Hubkit', 'GitHub disregarded the \'raw\' media type')
+              ), res);
+            } else {
+              let nextUrl;
+              if (res.headers.link) {
+                const match = /<([^>]+?)>;\s*rel="next"/.exec(res.headers.link);
+                nextUrl = match && match[1];
+                if (nextUrl && !(options.method === 'GET' || options.method === 'HEAD')) {
+                  throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
+                }
+              }
+              if (!res.data && rawData &&
+                  /\bformat=json\b/.test(res.headers['x-github-media-type'])) {
+                res.data = JSON.parse(rawData);
+              }
+              if (isGraphqlUrl(path)) {
+                let root = res.data.data;
+                const rootKeys = [];
+                while (true) {
+                  if (!root || Array.isArray(root) || typeof root === 'string' ||
+                      typeof root === 'number') {
+                    root = undefined;
+                    break;
+                  }
+                  const keys = Object.keys(root);
+                  if (keys.length !== 1) break;
+                  rootKeys.push(keys[0]);
+                  root = root[keys[0]];
+                  if (root && root.nodes) break;
+                }
+                const paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
+                  /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
+                let resultRoot;
+                if (paginated) {
+                  resultRoot = result;
+                  for (const key of rootKeys) {
+                    if (resultRoot === undefined) break;
+                    resultRoot = resultRoot[key];
                   }
                 }
-                if (!res.data && rawData &&
-                    /\bformat=json\b/.test(res.headers['x-github-media-type'])) {
-                  res.data = JSON.parse(rawData);
+                if (result && !(paginated && resultRoot && Array.isArray(resultRoot.nodes))) {
+                  throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
                 }
-                if (isGraphqlUrl(path)) {
-                  let root = res.data.data;
-                  const rootKeys = [];
-                  while (true) {
-                    if (!root || Array.isArray(root) || typeof root === 'string' ||
-                        typeof root === 'number') {
-                      root = undefined;
-                      break;
-                    }
-                    const keys = Object.keys(root);
-                    if (keys.length !== 1) break;
-                    rootKeys.push(keys[0]);
-                    root = root[keys[0]];
-                    if (root && root.nodes) break;
-                  }
-                  const paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
-                    /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
-                  let resultRoot;
-                  if (paginated) {
-                    resultRoot = result;
-                    for (const key of rootKeys) {
-                      if (resultRoot === undefined) break;
-                      resultRoot = resultRoot[key];
-                    }
-                  }
-                  if (result && !(paginated && resultRoot && Array.isArray(resultRoot.nodes))) {
-                    throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
-                  }
-                  if (paginated) {
-                    const cursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
-                    if (result) {
-                      resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
-                      for (const key in root) {
-                        if (!Object.hasOwnProperty.call(root, key) ||
-                            key === 'nodes' || key === 'pageInfo') {
-                          continue;
-                        }
-                        resultRoot[key] = root[key];
+                if (paginated) {
+                  const cursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
+                  if (result) {
+                    resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
+                    for (const key in root) {
+                      if (!Object.hasOwnProperty.call(root, key) ||
+                          key === 'nodes' || key === 'pageInfo') {
+                        continue;
                       }
-                    } else {
-                      result = res.data.data;
-                      delete root.pageInfo;
-                    }
-                    if (cursor) {
-                      if (options.allPages) {
-                        cachedItem = null;
-                        tries = 0;
-                        options._cause = 'page';
-                        options.body.variables = options.body.variables || {};
-                        options.body.variables.after = cursor;
-                        send(options.body, 'page');
-                        return;  // Don't resolve yet, more pages to come
-                      }
-                      result.next = () => {
-                        return self.request(
-                          path,
-                          defaults({
-                            _cause: 'page', body: defaults({
-                              variables: defaults({
-                                after: cursor
-                              }, options.body.variables)
-                            }, options.body)
-                          }, options)
-                        );
-                      };
+                      resultRoot[key] = root[key];
                     }
                   } else {
                     result = res.data.data;
+                    delete root.pageInfo;
                   }
-                } else if (res.data && (
-                  Array.isArray(res.data) || Array.isArray(res.data.items) ||
-                  Array.isArray(res.data.statuses) || Array.isArray(res.data.files)
-                )) {
-                  if (!result) {
-                    result = res.data;
-                  } else if (Array.isArray(res.data) && Array.isArray(result)) {
-                    result = result.concat(res.data);
-                  } else if (Array.isArray(res.data.items) && Array.isArray(result.items)) {
-                    result.items = result.items.concat(res.data.items);
-                  } else if (Array.isArray(res.data.statuses) && Array.isArray(result.statuses)) {
-                    result.statuses = result.statuses.concat(res.data.statuses);
-                  } else if (Array.isArray(res.data.files) && Array.isArray(result.files)) {
-                    result.files = result.files.concat(res.data.files);
-                  } else {
-                    throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
-                  }
-                  if (nextUrl) {
+                  if (cursor) {
                     if (options.allPages) {
                       cachedItem = null;
                       tries = 0;
-                      path = nextUrl;
                       options._cause = 'page';
-                      options.body = null;
-                      send(null, 'page');
-                      return;  // Don't resolve yet, more pages to come.
+                      options.body.variables = options.body.variables || {};
+                      options.body.variables.after = cursor;
+                      send(options.body, 'page');
+                      return;  // Don't resolve yet, more pages to come
                     }
                     result.next = () => {
-                      return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
+                      return self.request(
+                        path,
+                        defaults({
+                          _cause: 'page', body: defaults({
+                            variables: defaults({
+                              after: cursor
+                            }, options.body.variables)
+                          }, options.body)
+                        }, options)
+                      );
                     };
                   }
                 } else {
-                  if (nextUrl || result) {
-                    const error = new Error(formatError(
-                      'Hubkit', 'unable to find array in paginated response'));
-                    error.nextUrl = nextUrl;
-                    error.accumulatedResult = result;
-                    throw error;
-                  }
-                  if (options.boolean) {
-                    result = res.status === 204;
-                  } else {
-                    result =
-                      (options.responseType ||
-                      res.data && typeof res.data === 'object' && Object.keys(res.data).length) ?
-                        res.data : rawData;
-                  }
+                  result = res.data.data;
                 }
-                if (cacheable) {
-                  const size = rawData ? rawData.length : (res.data ?
-                    (res.data.size || res.data.byteLength) : 1);
-                  if (options.stats) options.stats.record(false, size);
-                  if (res.status === 200 && (res.headers.etag || res.headers['cache-control']) &&
-                      size <= options.cache.max * options.maxItemSizeRatio) {
-                    options.cache.set(cacheKey, {
-                      value: result, eTag: res.headers.etag, status: res.status, size,
-                      expiry: parseExpiry(res)
-                    });
-                  } else {
-                    options.cache.del(cacheKey);
-                  }
+              } else if (res.data && (
+                Array.isArray(res.data) || Array.isArray(res.data.items) ||
+                Array.isArray(res.data.statuses) || Array.isArray(res.data.files)
+              )) {
+                if (!result) {
+                  result = res.data;
+                } else if (Array.isArray(res.data) && Array.isArray(result)) {
+                  result = result.concat(res.data);
+                } else if (Array.isArray(res.data.items) && Array.isArray(result.items)) {
+                  result.items = result.items.concat(res.data.items);
+                } else if (Array.isArray(res.data.statuses) && Array.isArray(result.statuses)) {
+                  result.statuses = result.statuses.concat(res.data.statuses);
+                } else if (Array.isArray(res.data.files) && Array.isArray(result.files)) {
+                  result.files = result.files.concat(res.data.files);
+                } else {
+                  throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
                 }
-                resolve(result);
+                if (nextUrl) {
+                  if (options.allPages) {
+                    cachedItem = null;
+                    tries = 0;
+                    path = nextUrl;
+                    options._cause = 'page';
+                    options.body = null;
+                    send(null, 'page');
+                    return;  // Don't resolve yet, more pages to come.
+                  }
+                  result.next = () => {
+                    return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
+                  };
+                }
+              } else {
+                if (nextUrl || result) {
+                  const error = new Error(formatError(
+                    'Hubkit', 'unable to find array in paginated response'));
+                  error.nextUrl = nextUrl;
+                  error.accumulatedResult = result;
+                  throw error;
+                }
+                if (options.boolean) {
+                  result = res.status === 204;
+                } else {
+                  result =
+                    (options.responseType ||
+                    res.data && typeof res.data === 'object' && Object.keys(res.data).length) ?
+                      res.data : rawData;
+                }
               }
-            } catch (e) {
-              handleError(e, res);
+              if (cacheable) {
+                const size = rawData ? rawData.length : (res.data ?
+                  (res.data.size || res.data.byteLength) : 1);
+                if (options.stats) options.stats.record(false, size);
+                if (res.status === 200 && (res.headers.etag || res.headers['cache-control']) &&
+                    size <= options.cache.max * options.maxItemSizeRatio) {
+                  options.cache.set(cacheKey, {
+                    value: result, eTag: res.headers.etag, status: res.status, size,
+                    expiry: parseExpiry(res)
+                  });
+                } else {
+                  options.cache.del(cacheKey);
+                }
+              }
+              resolve(result);
             }
+          } catch (e) {
+            handleError(e, res);
           }
-        });
-
-        if (cacheable) options.cache.set(cacheKey, {promise: requestPromise, size: 100});
-        return requestPromise;
+        }
       });
+
+      if (cacheable) options.cache.set(cacheKey, {promise: requestPromise, size: 100});
+      return requestPromise;
     }
 
-    graph(query, options) {
+    async graph(query, options) {
       options = options || {};
       const fullOptions = Object.assign({}, this.defaultOptions, options);
-      return Promise.resolve(
-        fullOptions.onRequest && fullOptions.onRequest(fullOptions)
-      ).then(() => {
-        return replaceAsync(query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
-          (match, directive, arg, body) => {
-            if (!Object.prototype.hasOwnProperty.call(directives, directive)) {
-              throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
-            }
-            return (new directives[directive](arg, body, fullOptions, this)).render();
-          });
-      }).then(finalQuery => {
-        if (/#(\w+)\s*\(([^)]+)\)/.test(finalQuery)) {
-          throw new Error(
-            'Hubkit preprocessing directives may not ' +
-            'have been correctly terminated: ' + finalQuery);
-        }
-        const postOptions = defaults({body: {query: finalQuery}}, options);
-        delete postOptions.onRequest;
-        postOptions.host =
-          options.graphHost || options.host || this.defaultOptions.graphHost ||
-          this.defaultOptions.host;
-        if (options.variables) {
-          postOptions.body.variables = options.variables;
-          delete postOptions.variables;
-        }
-        return this.request('POST /graphql', postOptions);
-      });
+      if (fullOptions.onRequest) await fullOptions.onRequest(fullOptions);
+      query = await replaceAsync(query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
+        (match, directive, arg, body) => {
+          if (!Object.prototype.hasOwnProperty.call(directives, directive)) {
+            throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
+          }
+          return (new directives[directive](arg, body, fullOptions, this)).render();
+        });
+      if (/#(\w+)\s*\(([^)]+)\)/.test(query)) {
+        throw new Error(
+          'Hubkit preprocessing directives may not have been correctly terminated: ' + query);
+      }
+      const postOptions = defaults({body: {query}}, options);
+      delete postOptions.onRequest;
+      postOptions.host =
+        options.graphHost || options.host || this.defaultOptions.graphHost ||
+        this.defaultOptions.host;
+      if (options.variables) {
+        postOptions.body.variables = options.variables;
+        delete postOptions.variables;
+      }
+      return this.request('POST /graphql', postOptions);
     }
 
     interpolate(string, options) {
@@ -599,14 +592,14 @@ if (typeof require !== 'undefined') {
       new LRUCache({max: 10000000, length: item => item.size});
   }
 
-  function replaceAsync(str, regex, replacerFn) {
+  async function replaceAsync(str, regex, replacerFn) {
     const promises = [];
     str.replace(regex, (match, ...args) => {
       promises.push(new Promise(resolve => resolve(replacerFn(match, ...args))));
       return match;
     });
-    return Promise.all(promises).then(
-      substitutions => str.replace(regex, () => substitutions.shift()));
+    const substitutions = await Promise.all(promises);
+    return str.replace(regex, () => substitutions.shift());
   }
 
   function isGraphqlUrl(url) {
@@ -756,19 +749,20 @@ if (typeof require !== 'undefined') {
       actualVersion[0] === neededVersion[0] && actualVersion[1] >= neededVersion[1];
   }
 
+  const INTROSPECTION_QUERY = 'query ($type: String!) { __type(name: $type) { fields { name } } }';
   const schemaCache = {};
+
   function reflectGraphQLType(type, hubkit) {
     if (Object.prototype.hasOwnProperty.call(schemaCache, type)) return schemaCache[type];
-    const fieldsPromise = schemaCache[type] = hubkit.graph(
-      'query ($type: String!) { __type(name: $type) { fields { name } } }', {variables: {type}}
-    ).then(
-      result => {
+    const fieldsPromise = schemaCache[type] = (async () => {
+      try {
+        const result = await hubkit.graph(INTROSPECTION_QUERY, {variables: {type}});
         return result.__type && (result.__type.fields || []).map(field => field.name);
-      },
-      error => {
+      } catch (e) {
         delete schemaCache[type];
-        throw error;
-      });
+        throw e;
+      }
+    })();
     return fieldsPromise;
   }
 
