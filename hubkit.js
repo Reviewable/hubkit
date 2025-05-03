@@ -4,32 +4,11 @@ if (typeof require !== 'undefined') {
   if (typeof LRUCache === 'undefined') LRUCache = require('lru-cache');
 }
 
-(function(init) {
+(function() {
   'use strict';
-  /* eslint-disable no-undef */
-  const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
-  const isWebWorker = typeof self === 'object' && typeof WorkerGlobalScope === 'function' &&
-    self instanceof WorkerGlobalScope;
+
+  /* global process */
   const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
-  /* eslint-enable no-undef */
-  const Hubkit = init(isNode);
-  if (typeof angular !== 'undefined') {
-    /* global angular */
-    angular.module('hubkit', []).constant('Hubkit', Hubkit);
-  } else if (isNode) {
-    /* global module */
-    module.exports = Hubkit;
-  } else if (isWebWorker) {
-    /* global self */
-    self.Hubkit = Hubkit;
-  } else if (isBrowser) {
-    /* global window */
-    window.Hubkit = Hubkit;
-  } else {
-    throw new Error('Unable to install Hubkit - no recognizable global object found');
-  }
-})(function(isNode) {
-  'use strict';
 
   const NETWORK_ERROR_CODES = [
     'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EADDRINFO', 'ESOCKETTIMEDOUT', 'ECONNABORTED',
@@ -47,7 +26,7 @@ if (typeof require !== 'undefined') {
     render() {
       const body = this.body;
       if (body === undefined) this.error('missing body');
-      return Promise.resolve(this.check()).then(function(result) {return result ? body : '';});
+      return Promise.resolve(this.check()).then(result => result ? body : '');
     }
 
     error(details) {
@@ -73,10 +52,9 @@ if (typeof require !== 'undefined') {
     check() {
       const match = this.arg.match(/([^.]*)(?:\.(.*))?/);
       const type = match[1], field = match[2];
-      const self = this;
-      return reflectGraphQLType(type, this.hubkit).then(function(fields) {
+      return reflectGraphQLType(type, this.hubkit).then(fields => {
         if (field === undefined) return !!fields;
-        if (!fields) self.error('unknown type ' + type);
+        if (!fields) this.error('unknown type ' + type);
         return fields.includes(field);
       });
     }
@@ -84,11 +62,10 @@ if (typeof require !== 'undefined') {
 
   class FieldDirective extends Directive {
     render() {
-      const args = this.arg.split(',').map(function(s) {return s.trim();});
+      const args = this.arg.split(',').map(str => str.trim());
       if (args.length < 2) this.error('expected at least 2 arguments');
-      const self = this;
-      return reflectGraphQLType(args[0], this.hubkit).then(function(fields) {
-        if (!fields) self.error('unknown type ' + args[0]);
+      return reflectGraphQLType(args[0], this.hubkit).then(fields => {
+        if (!fields) this.error('unknown type ' + args[0]);
         for (const field of args.slice(1)) {
           if (fields.includes(field)) return field;
         }
@@ -104,7 +81,7 @@ if (typeof require !== 'undefined') {
     field: FieldDirective
   };
 
-  Object.keys(directives).forEach(function(directive) {
+  Object.keys(directives).forEach(directive => {
     directives[directive].prototype.directive = directive;
   });
 
@@ -170,7 +147,7 @@ if (typeof require !== 'undefined') {
       options = defaults({}, options);
       defaults(options, this.defaultOptions);
 
-      return Promise.resolve(options.onRequest && options.onRequest(options)).then(function() {
+      return Promise.resolve(options.onRequest && options.onRequest(options)).then(() => {
         path = interpolatePath(path, options);
 
         let cachedItem = null, cacheKey, cacheable = options.cache && options.method === 'GET';
@@ -184,10 +161,10 @@ if (typeof require !== 'undefined') {
           )) {
             if (options.stats) {
               if (cachedItem.promise) {
-                cachedItem.promise.then(function() {
+                cachedItem.promise.then(() => {
                   const entry = options.cache.get(cacheKey);
                   options.stats.record(true, entry ? entry.size : 1);
-                }).catch(function() {
+                }).catch(() => {
                   options.stats.record(true);
                 });
               } else {
@@ -198,7 +175,7 @@ if (typeof require !== 'undefined') {
           }
         }
 
-        const requestPromise = new Promise(function(resolve, reject) {
+        const requestPromise = new Promise((resolve, reject) => {
           let result, tries = 0;
           send(options.body, options._cause || 'initial');
 
@@ -264,7 +241,7 @@ if (typeof require !== 'undefined') {
 
           function send(body, cause) {
             tries++;
-            Promise.resolve(options.onSend && options.onSend(cause)).then(function(timeout) {
+            Promise.resolve(options.onSend && options.onSend(cause)).then(timeout => {
               timeout = timeout || options.timeout;
 
               let rawData;
@@ -274,7 +251,7 @@ if (typeof require !== 'undefined') {
                 timeout: timeout || 0,
                 params: {},
                 headers: {},
-                transformResponse: [function(data) {
+                transformResponse: [data => {
                   rawData = data;
                   // avoid axios default transform for 'raw'
                   // https://github.com/axios/axios/issues/907
@@ -297,17 +274,15 @@ if (typeof require !== 'undefined') {
                 else config.data = body;
               }
               let received = false;
-              axios(config).then(function(res) {
+              axios(config).then(res => {
                 received = true;
                 if (options.onReceive) options.onReceive();
                 onComplete(res, rawData);
-              }).catch(function(e) {
+              }).catch(e => {
                 if (options.onReceive && !received) options.onReceive();
                 onError(e);
               });
-            }).catch(function(error) {
-              reject(error);
-            });
+            }).catch(reject);
           }
 
           function formatError(origin, status, message) {
@@ -363,15 +338,15 @@ if (typeof require !== 'undefined') {
                 }
                 let status = res.status;
                 if (res.data && res.data.errors && res.status === 200) {
-                  if (res.data.errors.every(function(error) {
-                    return error.type === 'RATE_LIMITED' || error.type === 'FORBIDDEN';
-                  })) status = 403;
-                  else if (res.data.errors.every(function(error) {
-                    return error.type === 'NOT_FOUND';
-                  })) status = 404;
-                  else if (res.data.errors.some(function(error) {
-                    return /^something went wrong/i.test(error.message);
-                  })) status = 500;
+                  if (res.data.errors.every(error =>
+                    error.type === 'RATE_LIMITED' || error.type === 'FORBIDDEN'
+                  )) status = 403;
+                  else if (res.data.errors.every(error =>
+                    error.type === 'NOT_FOUND'
+                  )) status = 404;
+                  else if (res.data.errors.some(error =>
+                    /^something went wrong/i.test(error.message)
+                  )) status = 500;
                   else status = 400;
                 }
                 if (status === 404 && typeof options.ifNotFound !== 'undefined') {
@@ -485,7 +460,7 @@ if (typeof require !== 'undefined') {
                         send(options.body, 'page');
                         return;  // Don't resolve yet, more pages to come
                       }
-                      result.next = function() {
+                      result.next = () => {
                         return self.request(
                           path,
                           defaults({
@@ -528,7 +503,7 @@ if (typeof require !== 'undefined') {
                       send(null, 'page');
                       return;  // Don't resolve yet, more pages to come.
                     }
-                    result.next = function() {
+                    result.next = () => {
                       return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
                     };
                   }
@@ -578,19 +553,18 @@ if (typeof require !== 'undefined') {
 
     graph(query, options) {
       options = options || {};
-      const self = this;
       const fullOptions = Object.assign({}, this.defaultOptions, options);
       return Promise.resolve(
         fullOptions.onRequest && fullOptions.onRequest(fullOptions)
-      ).then(function() {
+      ).then(() => {
         return replaceAsync(query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
-          function(match, directive, arg, body) {
+          (match, directive, arg, body) => {
             if (!Object.prototype.hasOwnProperty.call(directives, directive)) {
               throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
             }
-            return (new directives[directive](arg, body, fullOptions, self)).render();
+            return (new directives[directive](arg, body, fullOptions, this)).render();
           });
-      }).then(function(finalQuery) {
+      }).then(finalQuery => {
         if (/#(\w+)\s*\(([^)]+)\)/.test(finalQuery)) {
           throw new Error(
             'Hubkit preprocessing directives may not ' +
@@ -599,13 +573,13 @@ if (typeof require !== 'undefined') {
         const postOptions = defaults({body: {query: finalQuery}}, options);
         delete postOptions.onRequest;
         postOptions.host =
-          options.graphHost || options.host || self.defaultOptions.graphHost ||
-          self.defaultOptions.host;
+          options.graphHost || options.host || this.defaultOptions.graphHost ||
+          this.defaultOptions.host;
         if (options.variables) {
           postOptions.body.variables = options.variables;
           delete postOptions.variables;
         }
-        return self.request('POST /graphql', postOptions);
+        return this.request('POST /graphql', postOptions);
       });
     }
 
@@ -622,19 +596,17 @@ if (typeof require !== 'undefined') {
 
   if (typeof LRUCache !== 'undefined') {
     Hubkit.defaults.cache =
-      new LRUCache({max: 10000000, length: function(item) {return item.size;}});
+      new LRUCache({max: 10000000, length: item => item.size});
   }
 
   function replaceAsync(str, regex, replacerFn) {
     const promises = [];
-    str.replace(regex, function(match) {
-      const args = arguments;
-      promises.push(new Promise(function(resolve) {resolve(replacerFn.apply(null, args));}));
+    str.replace(regex, (match, ...args) => {
+      promises.push(new Promise(resolve => resolve(replacerFn(match, ...args))));
       return match;
     });
-    return Promise.all(promises).then(function(substitutions) {
-      return str.replace(regex, function() {return substitutions.shift();});
-    });
+    return Promise.all(promises).then(
+      substitutions => str.replace(regex, () => substitutions.shift()));
   }
 
   function isGraphqlUrl(url) {
@@ -644,7 +616,7 @@ if (typeof require !== 'undefined') {
   function defaults(o1, o2) {
     const onError1 = o1 && o1.onError, onError2 = o2 && o2.onError;
     if (onError1 && onError2) {
-      o1.onError = function(error) {
+      o1.onError = error => {
         const value1 = onError1(error);
         if (value1 !== undefined) return value1;
         return onError2(error);
@@ -670,7 +642,7 @@ if (typeof require !== 'undefined') {
   }
 
   function interpolate(string, options) {
-    string = string.replace(/:([a-z-_]+)|\{(.+?)\}/gi, function(match, v1, v2) {
+    string = string.replace(/:([a-z-_]+)|\{(.+?)\}/gi, (match, v1, v2) => {
       const v = (v1 || v2);
       let value = options;
       for (const part of v.split('.')) {
@@ -778,8 +750,8 @@ if (typeof require !== 'undefined') {
   function satisfiesGheVersion(options, minVersion) {
     if (options.host === 'https://api.github.com') return true;
     if (!options.gheVersion) return false;
-    const neededVersion = minVersion.split('.').map(function(x) {return parseInt(x, 10);});
-    const actualVersion = options.gheVersion.split('.').map(function(x) {return parseInt(x, 10);});
+    const neededVersion = minVersion.split('.').map(x => parseInt(x, 10));
+    const actualVersion = options.gheVersion.split('.').map(x => parseInt(x, 10));
     return actualVersion[0] > neededVersion[0] ||
       actualVersion[0] === neededVersion[0] && actualVersion[1] >= neededVersion[1];
   }
@@ -791,16 +763,24 @@ if (typeof require !== 'undefined') {
       'query ($type: String!) { __type(name: $type) { fields { name } } }',
       {variables: {type: type}}
     ).then(
-      function(result) {
-        return result.__type &&
-          (result.__type.fields || []).map(function(field) {return field.name;});
+      result => {
+        return result.__type && (result.__type.fields || []).map(field => field.name);
       },
-      function(error) {
+      error => {
         delete schemaCache[type];
         throw error;
       });
     return fieldsPromise;
   }
 
-  return Hubkit;
-});
+  if (typeof angular !== 'undefined') {
+    /* global angular */
+    angular.module('hubkit', []).constant('Hubkit', Hubkit);
+  } else if (isNode) {
+    /* global module */
+    module.exports = Hubkit;
+  } else {
+    /* global self */
+    self.Hubkit = Hubkit;
+  }
+})();
