@@ -12,10 +12,6 @@ export default [
         setTimeout: false
       },
       sourceType: 'script'
-    },
-    rules: {
-      // These rules are incompatible with ES5, remove when updating ES version.
-      'object-shorthand': 'off'
     }
   },
   {
