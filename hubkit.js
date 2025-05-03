@@ -89,8 +89,8 @@ if (typeof require !== 'undefined') {
       const self = this;
       return reflectGraphQLType(args[0], this.hubkit).then(function(fields) {
         if (!fields) self.error('unknown type ' + args[0]);
-        for (let i = 1; i < args.length; i++) {
-          if (fields.includes(args[i])) return args[i];
+        for (const field of args.slice(1)) {
+          if (fields.includes(field)) return field;
         }
         return '';
       });
@@ -382,8 +382,7 @@ if (typeof require !== 'undefined') {
                   let errors = '';
                   if (res.data && res.data.errors) {
                     errors = [];
-                    for (let i = 0; i < res.data.errors.length; i++) {
-                      const errorItem = res.data.errors[i];
+                    for (const errorItem of res.data.errors) {
                       if (errorItem.message) {
                         errors.push(errorItem.message);
                       } else if (errorItem.field && errorItem.code) {
@@ -453,9 +452,9 @@ if (typeof require !== 'undefined') {
                   let resultRoot;
                   if (paginated) {
                     resultRoot = result;
-                    for (let p = 0; p < rootKeys.length; p++) {
+                    for (const key of rootKeys) {
                       if (resultRoot === undefined) break;
-                      resultRoot = resultRoot[rootKeys[p]];
+                      resultRoot = resultRoot[key];
                     }
                   }
                   if (result && !(paginated && resultRoot && Array.isArray(resultRoot.nodes))) {
@@ -673,22 +672,17 @@ if (typeof require !== 'undefined') {
   function interpolate(string, options) {
     string = string.replace(/:([a-z-_]+)|\{(.+?)\}/gi, function(match, v1, v2) {
       const v = (v1 || v2);
-      let parts = v.split('.');
-      let value = options, i;
-      for (i = 0; i < parts.length; i++) {
-        if (!(parts[i] in value)) {
+      let value = options;
+      for (const part of v.split('.')) {
+        if (!(part in value)) {
           throw new Error('Options missing variable "' + v + '" for path "' + string + '"');
         }
-        value = value[parts[i]];
+        value = value[part];
       }
       if (value === null || value === undefined) {
         throw new Error('Variable "' + v + '" is ' + value + ' for path "' + string + '"');
       }
-      parts = value.toString().split('/');
-      for (i = 0; i < parts.length; i++) {
-        parts[i] = encodeURIComponent(parts[i]);
-      }
-      return parts.join('/');
+      return value.toString().split('/').map(encodeURIComponent).join('/');
     });
     return string;
   }
