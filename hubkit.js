@@ -54,7 +54,7 @@ if (typeof require !== 'undefined') {
       const fields = await reflectGraphQLType(type, this.hubkit);
       if (field === undefined) return !!fields;
       if (!fields) this.error('unknown type ' + type);
-      return fields.includes(field);
+      return fields.has(field);
     }
   }
 
@@ -65,21 +65,21 @@ if (typeof require !== 'undefined') {
       const fields = await reflectGraphQLType(args[0], this.hubkit);
       if (!fields) this.error('unknown type ' + args[0]);
       for (const field of args.slice(1)) {
-        if (fields.includes(field)) return field;
+        if (fields.has(field)) return field;
       }
       return '';
     }
   }
 
-  const directives = {
-    ghe: GheDirective,
-    scope: ScopeDirective,
-    exists: ExistsDirective,
-    field: FieldDirective
-  };
+  const directives = new Map([
+    ['ghe', GheDirective],
+    ['scope', ScopeDirective],
+    ['exists', ExistsDirective],
+    ['field', FieldDirective]
+  ]);
 
-  Object.keys(directives).forEach(directive => {
-    directives[directive].prototype.directive = directive;
+  directives.forEach((constructor, directive) => {
+    constructor.prototype.directive = directive;
   });
 
   class Hubkit {
@@ -555,10 +555,10 @@ if (typeof require !== 'undefined') {
       if (fullOptions.onRequest) await fullOptions.onRequest(fullOptions);
       query = await replaceAsync(query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
         (match, directive, arg, body) => {
-          if (!Object.prototype.hasOwnProperty.call(directives, directive)) {
+          if (!directives.has(directive)) {
             throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
           }
-          return (new directives[directive](arg, body, fullOptions, this)).render();
+          return new (directives.get(directive))(arg, body, fullOptions, this).render();
         });
       if (/#(\w+)\s*\(([^)]+)\)/.test(query)) {
         throw new Error(
@@ -750,19 +750,21 @@ if (typeof require !== 'undefined') {
   }
 
   const INTROSPECTION_QUERY = 'query ($type: String!) { __type(name: $type) { fields { name } } }';
-  const schemaCache = {};
+  const schemaCache = new Map();
 
   function reflectGraphQLType(type, hubkit) {
-    if (Object.prototype.hasOwnProperty.call(schemaCache, type)) return schemaCache[type];
-    const fieldsPromise = schemaCache[type] = (async () => {
+    let fieldsPromise = schemaCache.get(type);
+    if (fieldsPromise) return fieldsPromise;
+    fieldsPromise = (async () => {
       try {
         const result = await hubkit.graph(INTROSPECTION_QUERY, {variables: {type}});
-        return result.__type && (result.__type.fields || []).map(field => field.name);
+        return result.__type && new Set((result.__type.fields || []).map(field => field.name));
       } catch (e) {
-        delete schemaCache[type];
+        schemaCache.delete(type);
         throw e;
       }
     })();
+    schemaCache.set(type, fieldsPromise);
     return fieldsPromise;
   }
 
