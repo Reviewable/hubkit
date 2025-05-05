@@ -140,7 +140,6 @@ if (typeof require !== 'undefined') {
     }
 
     async request(path, options) {
-      const self = this;
       options = defaults({}, options);
       defaults(options, this.defaultOptions);
 
@@ -236,54 +235,6 @@ if (typeof require !== 'undefined') {
           send(options.body, 'retry');
         }
 
-        async function send(body, cause) {
-          tries++;
-          try {
-            const timeout = options.onSend && await options.onSend(cause) || options.timeout;
-            let rawData;
-            const config = {
-              url: path,
-              method: options.method,
-              timeout: timeout || 0,
-              params: {},
-              headers: {},
-              transformResponse: [data => {
-                rawData = data;
-                // avoid axios default transform for 'raw'
-                // https://github.com/axios/axios/issues/907
-                if (options.media !== 'raw') {
-                  return axios.defaults.transformResponse[0](data);
-                }
-                return data;
-              }]
-            };
-            addHeaders(config, options, cachedItem);
-
-            // If we're paging through a query, the path contains the full query string already so
-            // we need to wipe out any additional query params inserted by addHeaders above.
-            // Also, if we retry a page query the cause will become 'retry', so explicitly check
-            // options._cause as well.
-            if (cause === 'page' || options._cause === 'page') config.params = {};
-
-            if (body) {
-              if (options.method === 'GET') config.params = Object.assign(config.params, body);
-              else config.data = body;
-            }
-            let received = false;
-            try {
-              const res = await axios(config);
-              received = true;
-              if (options.onReceive) options.onReceive();
-              onComplete(res, rawData);
-            } catch (e) {
-              if (options.onReceive && !received) options.onReceive();
-              onError(e);
-            }
-          } catch (error) {
-            reject(error);
-          }
-        }
-
         function formatError(origin, status, message) {
           if (!message) {
             message = status;
@@ -294,27 +245,7 @@ if (typeof require !== 'undefined') {
             message;
         }
 
-        function onError(error) {
-          // If we get an error response without a status, then it's not a real error coming back
-          // from the server but some kind of synthetic response Axios concocted for us.  Treat it
-          // as a generic network error.
-          if (error.response && error.response.status) return onComplete(error.response);
-
-          if ((/Network Error/.test(error.message) || error.message === '0') &&
-              (options.corsSuccessFlags[options.host] ||
-                !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
-          ) {
-            error.message = 'Request terminated abnormally, network may be offline';
-          }
-          if (error.message === 'maxContentLength size of -1 exceeded') error.message = 'aborted';
-          error.originalMessage = error.message;
-          error.message = formatError('Hubkit', error.message);
-          error.fingerprint =
-            ['Hubkit', options.method, options.pathPattern, error.originalMessage];
-          handleError(error);
-        }
-
-        function onComplete(res, rawData) {
+        const onComplete = (res, rawData) => {
           extractMetadata(path, res, options.metadata);
           if (res.headers['access-control-allow-origin']) {
             options.corsSuccessFlags[options.host] = true;
@@ -460,7 +391,7 @@ if (typeof require !== 'undefined') {
                       return;  // Don't resolve yet, more pages to come
                     }
                     result.next = () => {
-                      return self.request(
+                      return this.request(
                         path,
                         defaults({
                           _cause: 'page', body: defaults({
@@ -503,7 +434,7 @@ if (typeof require !== 'undefined') {
                     return;  // Don't resolve yet, more pages to come.
                   }
                   result.next = () => {
-                    return self.request(nextUrl, defaults({_cause: 'page', body: null}, options));
+                    return this.request(nextUrl, defaults({_cause: 'page', body: null}, options));
                   };
                 }
               } else {
@@ -541,6 +472,74 @@ if (typeof require !== 'undefined') {
             }
           } catch (e) {
             handleError(e, res);
+          }
+        };
+
+        function onError(error) {
+          // If we get an error response without a status, then it's not a real error coming back
+          // from the server but some kind of synthetic response Axios concocted for us.  Treat it
+          // as a generic network error.
+          if (error.response && error.response.status) return onComplete(error.response);
+
+          if ((/Network Error/.test(error.message) || error.message === '0') &&
+              (options.corsSuccessFlags[options.host] ||
+                !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
+          ) {
+            error.message = 'Request terminated abnormally, network may be offline';
+          }
+          if (error.message === 'maxContentLength size of -1 exceeded') error.message = 'aborted';
+          error.originalMessage = error.message;
+          error.message = formatError('Hubkit', error.message);
+          error.fingerprint =
+            ['Hubkit', options.method, options.pathPattern, error.originalMessage];
+          handleError(error);
+        }
+
+        async function send(body, cause) {
+          tries++;
+          try {
+            const timeout = options.onSend && await options.onSend(cause) || options.timeout;
+            let rawData;
+            const config = {
+              url: path,
+              method: options.method,
+              timeout: timeout || 0,
+              params: {},
+              headers: {},
+              transformResponse: [data => {
+                rawData = data;
+                // avoid axios default transform for 'raw'
+                // https://github.com/axios/axios/issues/907
+                if (options.media !== 'raw') {
+                  return axios.defaults.transformResponse[0](data);
+                }
+                return data;
+              }]
+            };
+            addHeaders(config, options, cachedItem);
+
+            // If we're paging through a query, the path contains the full query string already so
+            // we need to wipe out any additional query params inserted by addHeaders above.
+            // Also, if we retry a page query the cause will become 'retry', so explicitly check
+            // options._cause as well.
+            if (cause === 'page' || options._cause === 'page') config.params = {};
+
+            if (body) {
+              if (options.method === 'GET') config.params = Object.assign(config.params, body);
+              else config.data = body;
+            }
+            let received = false;
+            try {
+              const res = await axios(config);
+              received = true;
+              if (options.onReceive) options.onReceive();
+              onComplete(res, rawData);
+            } catch (e) {
+              if (options.onReceive && !received) options.onReceive();
+              onError(e);
+            }
+          } catch (error) {
+            reject(error);
           }
         }
       });
