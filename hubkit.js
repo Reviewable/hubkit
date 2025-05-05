@@ -29,7 +29,7 @@ if (typeof require !== 'undefined') {
     }
 
     error(details) {
-      throw new Error('Hubkit unable to process #' + this.directive + ' directive: ' + details);
+      throw new Error(`Hubkit unable to process #${this.directive} directive: ${details}`);
     }
   }
 
@@ -53,7 +53,7 @@ if (typeof require !== 'undefined') {
       const type = match[1], field = match[2];
       const fields = await reflectGraphQLType(type, this.hubkit);
       if (field === undefined) return !!fields;
-      if (!fields) this.error('unknown type ' + type);
+      if (!fields) this.error(`unknown type ${type}`);
       return fields.has(field);
     }
   }
@@ -63,7 +63,7 @@ if (typeof require !== 'undefined') {
       const args = this.arg.split(',').map(str => str.trim());
       if (args.length < 2) this.error('expected at least 2 arguments');
       const fields = await reflectGraphQLType(args[0], this.hubkit);
-      if (!fields) this.error('unknown type ' + args[0]);
+      if (!fields) this.error(`unknown type ${args[0]}`);
       for (const field of args.slice(1)) {
         if (fields.has(field)) return field;
       }
@@ -240,9 +240,8 @@ if (typeof require !== 'undefined') {
             message = status;
             status = null;
           }
-          const prefix = origin + ' error' + (status ? ' ' + status : '');
-          return prefix + ' on ' + options.method + ' ' + path.replace(/\?.*/, '') + ': ' +
-            message;
+          const prefix = `${origin} error${status ? ` ${status}` : ''}`;
+          return `${prefix} on ${options.method} ${path.replace(/\?.*/, '')}: ${message}`;
         }
 
         const onComplete = (res, rawData) => {
@@ -291,13 +290,13 @@ if (typeof require !== 'undefined') {
                     if (errorItem.message) {
                       errors.push(errorItem.message);
                     } else if (errorItem.field && errorItem.code) {
-                      errors.push('field ' + errorItem.field + ' ' + errorItem.code);
+                      errors.push(`field ${errorItem.field} ${errorItem.code}`);
                     } else if (typeof errorItem === 'string') {
                       errors.push(errorItem);
                     }
                   }
                   errors = errors.join('; ');
-                  if (res.data.message && errors) errors = ' (' + errors + ')';
+                  if (res.data.message && errors) errors = ` (${errors})`;
                 }
                 const statusError = new Error(
                   formatError('GitHub', status, (res.data && res.data.message || '') + errors)
@@ -314,7 +313,7 @@ if (typeof require !== 'undefined') {
                 statusError.response = res;
                 if (options.logTag) statusError.logTag = options.logTag;
                 statusError.fingerprint =
-                  ['Hubkit', options.method, options.logTag || options.pathPattern, '' + status];
+                  ['Hubkit', options.method, options.logTag || options.pathPattern, `${status}`];
                 handleError(statusError, res);
               }
             } else if (options.media === 'raw' && !(
@@ -555,13 +554,13 @@ if (typeof require !== 'undefined') {
       query = await replaceAsync(query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
         (match, directive, arg, body) => {
           if (!directives.has(directive)) {
-            throw new Error('Unknown Hubkit GraphQL preprocessing directive: #' + directive);
+            throw new Error(`Unknown Hubkit GraphQL preprocessing directive: #${directive}`);
           }
           return new (directives.get(directive))(arg, body, fullOptions, this).render();
         });
       if (/#(\w+)\s*\(([^)]+)\)/.test(query)) {
         throw new Error(
-          'Hubkit preprocessing directives may not have been correctly terminated: ' + query);
+          `Hubkit preprocessing directives may not have been correctly terminated: ${query}`);
       }
       const postOptions = defaults({body: {query}}, options);
       delete postOptions.onRequest;
@@ -639,12 +638,12 @@ if (typeof require !== 'undefined') {
       let value = options;
       for (const part of v.split('.')) {
         if (!(part in value)) {
-          throw new Error('Options missing variable "' + v + '" for path "' + string + '"');
+          throw new Error(`Options missing variable "${v}" for path "${string}"`);
         }
         value = value[part];
       }
       if (value === null || value === undefined) {
-        throw new Error('Variable "' + v + '" is ' + value + ' for path "' + string + '"');
+        throw new Error(`Variable "${v}" is ${value} for path "${string}"`);
       }
       return value.toString().split('/').map(encodeURIComponent).join('/');
     });
@@ -658,7 +657,7 @@ if (typeof require !== 'undefined') {
       config[/^https:/.test(options.host) ? 'httpsAgent' : 'httpAgent'] = options.agent;
     }
     if (options.token) {
-      config.headers['Authorization'] = 'token ' + options.token;
+      config.headers['Authorization'] = `token ${options.token}`;
     } else if (options.username && options.password) {
       throw new Error('Username / password authentication is no longer supported');
     } else if (options.clientId && options.clientSecret) {
@@ -668,7 +667,7 @@ if (typeof require !== 'undefined') {
       };
     }
     if (options.userAgent) config.headers['User-Agent'] = options.userAgent;
-    if (options.media) config.headers['Accept'] = 'application/vnd.github.' + options.media;
+    if (options.media) config.headers['Accept'] = `application/vnd.github.${options.media}`;
     if (options.method === 'GET' || options.method === 'HEAD') {
       config.params['per_page'] = options.perPage;
     }
@@ -690,7 +689,7 @@ if (typeof require !== 'undefined') {
       (isGraphqlUrl(path) ? 'graphRateLimit' : 'rateLimit');
     metadata[rateName] = res.headers['x-ratelimit-limit'] &&
       parseInt(res.headers['x-ratelimit-limit'], 10);
-    metadata[rateName + 'Remaining'] = res.headers['x-ratelimit-remaining'] &&
+    metadata[`${rateName}Remaining`] = res.headers['x-ratelimit-remaining'] &&
       parseInt(res.headers['x-ratelimit-remaining'], 10);
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
     // missing.
@@ -715,19 +714,19 @@ if (typeof require !== 'undefined') {
 
   function computeCacheKey(url, options) {
     let cacheKey = url;
-    const sortedQuery = ['per_page=' + options.perPage];
+    const sortedQuery = [`per_page=${options.perPage}`];
     if (options.token) {
-      sortedQuery.push('_token=' + options.token);
+      sortedQuery.push(`_token=${options.token}`);
     } else if (options.username && options.password) {
-      sortedQuery.push('_login=' + options.username + ':' + options.password);
+      sortedQuery.push(`_login=${options.username}:${options.password}`);
     }
     if (options.boolean) sortedQuery.push('_boolean=true');
     if (options.allPages) sortedQuery.push('_allPages=true');
-    if (options.responseType) sortedQuery.push('_responseType=' + options.responseType);
-    if (options.media) sortedQuery.push('_media=' + encodeURIComponent(options.media));
+    if (options.responseType) sortedQuery.push(`_responseType=${options.responseType}`);
+    if (options.media) sortedQuery.push(`_media=${encodeURIComponent(options.media)}`);
     if (options.body) {
       for (const key in options.body) {
-        sortedQuery.push(encodeURIComponent(key) + '=' + encodeURIComponent(options.body[key]));
+        sortedQuery.push(`${encodeURIComponent(key)}=${encodeURIComponent(options.body[key])}`);
       }
     }
     sortedQuery.sort();
