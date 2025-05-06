@@ -11,14 +11,7 @@ export default [
         Promise: false,
         setTimeout: false
       },
-      ecmaVersion: 5,
       sourceType: 'script'
-    },
-    rules: {
-      // These rules are incompatible with ES5, remove when updating ES version.
-      'no-var': 'off',
-      'prefer-arrow-callback': 'off',
-      'object-shorthand': 'off'
     }
   },
   {
