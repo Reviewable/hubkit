@@ -594,7 +594,7 @@ if (typeof require !== 'undefined') {
   async function replaceAsync(str, regex, replacerFn) {
     const promises = [];
     str.replace(regex, (match, ...args) => {
-      promises.push(new Promise(resolve => resolve(replacerFn(match, ...args))));
+      promises.push(Promise.resolve().then(() => replacerFn(match, ...args)));
       return match;
     });
     const substitutions = await Promise.all(promises);
