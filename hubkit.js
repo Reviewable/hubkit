@@ -35,8 +35,9 @@ if (typeof require !== 'undefined') {
 
   class GheDirective extends Directive {
     check() {
+      if (satisfiesGheVersion(this.options, this.arg)) return true;
       if (!this.options.gheVersion) this.error('gheVersion missing');
-      return satisfiesGheVersion(this.options, this.arg);
+      return false;
     }
   }
 
