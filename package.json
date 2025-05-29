@@ -27,6 +27,7 @@
   "engines": {
     "node": ">=14.0"
   },
+  "packageManager": "yarn@1.22.22",
   "dependencies": {
     "axios": "^1.2.1",
     "lru-cache": "6.x"
