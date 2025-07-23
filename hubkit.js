@@ -337,7 +337,7 @@ if (typeof require !== 'undefined') {
                   /\bformat=json\b/.test(res.headers['x-github-media-type'])) {
                 res.data = JSON.parse(rawData);
               }
-              if (isGraphqlUrl(path)) {
+              if (detectApi(path) === 'graph') {
                 let root = res.data.data;
                 const rootKeys = [];
                 while (true) {
@@ -346,7 +346,7 @@ if (typeof require !== 'undefined') {
                     root = undefined;
                     break;
                   }
-                  const keys = Object.keys(root);
+                  const keys = Object.keys(root).filter(key => key !== 'rateLimit');
                   if (keys.length !== 1) break;
                   rootKeys.push(keys[0]);
                   root = root[keys[0]];
@@ -532,7 +532,9 @@ if (typeof require !== 'undefined') {
             try {
               const res = await axios(config);
               received = true;
-              if (options.onReceive) options.onReceive();
+              const api = detectApi(path);
+              const cost = api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
+              if (options.onReceive) options.onReceive({api, cost});
               onComplete(res, rawData);
             } catch (e) {
               if (options.onReceive && !received) options.onReceive();
@@ -552,7 +554,8 @@ if (typeof require !== 'undefined') {
       options = options || {};
       const fullOptions = Object.assign({}, this.defaultOptions, options);
       if (fullOptions.onRequest) await fullOptions.onRequest(fullOptions);
-      query = await replaceAsync(query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
+      query = await replaceAsync(
+        query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
         (match, directive, arg, body) => {
           if (!directives.has(directive)) {
             throw new Error(`Unknown Hubkit GraphQL preprocessing directive: #${directive}`);
@@ -562,6 +565,10 @@ if (typeof require !== 'undefined') {
       if (/#(\w+)\s*\(([^)]+)\)/.test(query)) {
         throw new Error(
           `Hubkit preprocessing directives may not have been correctly terminated: ${query}`);
+      }
+      if (fullOptions.autoQueryRateLimit) {
+        query = query.replace(
+          /\bquery\s*(?:\([\s\S]*?\))?\s*\{/, match => match + 'rateLimit {cost, remaining} ');
       }
       const postOptions = defaults({body: {query}}, options);
       delete postOptions.onRequest;
@@ -601,8 +608,8 @@ if (typeof require !== 'undefined') {
     return str.replace(regex, () => substitutions.shift());
   }
 
-  function isGraphqlUrl(url) {
-    return /^https?:\/\/[^/]+(?:\/api)?\/graphql/.test(url);
+  function detectApi(url) {
+    return url.match(/^https?:\/\/[^/]+(?:\/api)?\/(search|graph(?=ql))/)?.[1] || 'core';
   }
 
   function defaults(o1, o2) {
@@ -686,8 +693,8 @@ if (typeof require !== 'undefined') {
 
   function extractMetadata(path, res, metadata) {
     if (!(res && metadata)) return;
-    const rateName = /^https?:\/\/[^/]+\/search\//.test(path) ? 'searchRateLimit' :
-      (isGraphqlUrl(path) ? 'graphRateLimit' : 'rateLimit');
+    const api = detectApi(path);
+    const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
     metadata[rateName] = res.headers['x-ratelimit-limit'] &&
       parseInt(res.headers['x-ratelimit-limit'], 10);
     metadata[`${rateName}Remaining`] = res.headers['x-ratelimit-remaining'] &&

@@ -37,6 +37,7 @@ interface Options {
   corsSuccessFlags?: Record<string, boolean>;
   cache?: any;
   userAgent?: string;
+  autoQueryRateLimit?: boolean;
 
   token?: string;
   clientId?: string;
@@ -46,8 +47,8 @@ interface Options {
   [key: string]: any;
 
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
-  onSend?(cause: 'initial' | 'retry' | 'page'): number;  // returns timeout
-  onReceive?(): void;
+  onSend?(cause: 'initial' | 'retry' | 'page'): number | Promise<number>;  // returns timeout
+  onReceive?(call?: {api: 'core' | 'graph' | 'search', cost: number | undefined}): void;
   onError?(error: Error & {
     status?: number,
     data?: any,

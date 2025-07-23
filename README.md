@@ -71,7 +71,7 @@ GraphQL queries are first run through a preprocessor that supports the following
 
 This is useful since GraphQL forbids references to fields not in the schema, and GHE servers in the field are often months or years behind `github.com` in that respect.  To use the `#ghe` or `#scope` directives you need to include the `gheVersion` or `scopes` properties respectively in the options (see below).
 
-Schema information for the `#exists` and `#field` directives is queried from the server and is cached indefinitely in memory (regardless of any cache related options). 
+Schema information for the `#exists` and `#field` directives is queried from the server and is cached indefinitely in memory (regardless of any cache related options).
 
 Here is an example demonstrating each directive:
 
@@ -154,6 +154,7 @@ content.  Valid values are:
   * for commits, etc.: `diff`, `patch`
 * `body`: The contents of the request to send, typically a JSON-friendly object.
 * `variables`: For GraphQL queries, variables to pass to the server along with the query.
+* `autoQueryRateLimit`: For GraphQL queries, whether to inject a `rateLimit {cost, remaining}` property into every query.  This is used to figure out the cost information passed to `onReceive` (see below).
 * `responseType`: The XHR2 response type if you want to receive raw binary data; one of `text`, `arraybuffer`, `blob`, or `document`.  Only useful when fetching file blobs.
 * `perPage`: The number of items to return per page of response.  Defaults to 100.
 * `allPages`: Whether to automatically fetch all pages by following the `next` links and concatenate
@@ -170,5 +171,6 @@ unexpected 4xx or 5xx response.  If it's an error response, the error object wil
 be rejected as usual (or the request retried in some special cases, like socket hang ups and abuse quota 403s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
 * `maxTries`: The maximum number of times that a request will be tried (including the original call) if `onError` keeps returning `Hubkit.RETRY`.
 * `onSend`: A function to be called before every individual request gets sent to GitHub.  The sole argument will be a string indicating the reason for the request: `initial` for the initial request, `page` for an automatic next page request (if the `allPages` option is on), and `retry` for an explicit or automatic retry.  The function can return a duration in milliseconds that will override the timeout provided in the options (if any).  The function can also return a promise for the above, in which case the request will be held until the promise is resolved.
+* `onReceive`. A function to be called after a reponse (or error) is received from GitHub.  If a response was received then the function will be passed an object with properties `api` (indicating the API used, and hence the quota pool) and `cost` (how much quota was used by this request).  The function's return value, if any, is discarded.
 * `gheVersion`: A string representing the version of the GitHub Enterprise server you're making calls to.  You can retrieve it via a request to `/meta`.  Ignored if your host is `https://api.github.com` (and all `#ghe` preprocessing directives pass automatically).  Otherwise, if a `#ghe` directive is encountered and `gheVersion` is not set then an error is thrown.
 * `scopes`: An array of strings representing all the scopes granted to the user's token.  (Note that some scopes imply others, but Hubkit doesn't expand these internally &mdash; you might want to do so yourself.)  If a `#scope` directive is encountered and `scopes` is not set then an error is thrown.
