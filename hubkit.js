@@ -352,8 +352,14 @@ if (typeof require !== 'undefined') {
                   root = root[keys[0]];
                   if (root && root.nodes) break;
                 }
-                const paginated = root && Array.isArray(root.nodes) && root.pageInfo &&
+                const paginated = root && Array.isArray(root.nodes) &&
                   /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
+                if (paginated && !(
+                  root.pageInfo && 'endCursor' in root.pageInfo && 'hasNextPage' in root.pageInfo
+                )) {
+                  throw new Error(
+                    `Internal error: paginated query missing pageInfo at ${rootKeys.join('.')}`);
+                }
                 let resultRoot;
                 if (paginated) {
                   resultRoot = result;
