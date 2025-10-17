@@ -270,7 +270,7 @@ if (typeof require !== 'undefined') {
               if (res.data && res.data.errors && res.status === 200) {
                 if (res.data.errors.every(error =>
                   error.type === 'RATE_LIMITED' || error.type === 'RATE_LIMIT' ||
-                  error.type === 'FORBIDDEN'
+                  error.type === 'FORBIDDEN' || error.type === 'INSUFFICIENT_SCOPES'
                 )) status = 403;
                 else if (res.data.errors.every(error =>
                   error.type === 'NOT_FOUND'
