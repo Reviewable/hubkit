@@ -246,14 +246,19 @@ if (typeof require !== 'undefined') {
         }
 
         const onComplete = (res, rawData) => {
-          extractMetadata(path, res, options.metadata);
+          extractMetadata(path, res.headers, options.metadata);
           if (res.headers['access-control-allow-origin']) {
             options.corsSuccessFlags[options.host] = true;
           }
 
           try {
             if (res.status === 304) {
-              cachedItem.expiry = parseExpiry(res);
+              // Backfill metadata from the cache as some (like x-oauth-scopes) are not re-emitted
+              // with a 304, but let response override cached values if present.  (Note that cache
+              // keys include the token, so it's safe to replay user-specific headers from cache.)
+              extractMetadata(path, cachedItem.headers, options.metadata);
+              extractMetadata(path, res.headers, options.metadata);
+              cachedItem.expiry = parseExpiry(res.headers);
               if (options.stats) options.stats.record(true, cachedItem.size);
               resolve(cachedItem.value);
             } else if (
@@ -468,8 +473,8 @@ if (typeof require !== 'undefined') {
                 if (res.status === 200 && (res.headers.etag || res.headers['cache-control']) &&
                     size <= options.cache.max * options.maxItemSizeRatio) {
                   options.cache.set(cacheKey, {
-                    value: result, eTag: res.headers.etag, status: res.status, size,
-                    expiry: parseExpiry(res)
+                    value: result, eTag: res.headers.etag, status: res.status, headers: res.headers,
+                    size, expiry: parseExpiry(res.headers)
                   });
                 } else {
                   options.cache.del(cacheKey);
@@ -698,19 +703,19 @@ if (typeof require !== 'undefined') {
     /* eslint-enable dot-notation */
   }
 
-  function extractMetadata(path, res, metadata) {
-    if (!(res && metadata)) return;
+  function extractMetadata(path, headers, metadata) {
+    if (!(headers && metadata)) return;
     const api = detectApi(path);
     const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
-    metadata[rateName] = res.headers['x-ratelimit-limit'] &&
-      parseInt(res.headers['x-ratelimit-limit'], 10);
-    metadata[`${rateName}Remaining`] = res.headers['x-ratelimit-remaining'] &&
-      parseInt(res.headers['x-ratelimit-remaining'], 10);
+    metadata[rateName] = headers['x-ratelimit-limit'] &&
+      parseInt(headers['x-ratelimit-limit'], 10);
+    metadata[`${rateName}Remaining`] = headers['x-ratelimit-remaining'] &&
+      parseInt(headers['x-ratelimit-remaining'], 10);
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
     // missing.
-    if ('x-oauth-scopes' in res.headers) {
+    if ('x-oauth-scopes' in headers) {
       metadata.oAuthScopes = [];
-      const scopes = (res.headers['x-oauth-scopes'] || '').split(/\s*,\s*/);
+      const scopes = (headers['x-oauth-scopes'] || '').split(/\s*,\s*/);
       if (!(scopes.length === 1 && scopes[0] === '')) {
         // GitHub will sometimes return duplicate scopes in the list, so uniquefy them.
         scopes.sort();
@@ -722,8 +727,8 @@ if (typeof require !== 'undefined') {
     }
   }
 
-  function parseExpiry(res) {
-    const match = (res.headers['cache-control'] || '').match(/(^|[,\s])max-age=(\d+)/);
+  function parseExpiry(headers) {
+    const match = (headers['cache-control'] || '').match(/(^|[,\s])max-age=(\d+)/);
     if (match) return Date.now() + 1000 * parseInt(match[2], 10);
   }
 
