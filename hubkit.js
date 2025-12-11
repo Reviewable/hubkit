@@ -206,7 +206,7 @@ if (typeof require !== 'undefined') {
                 error.retryDelay =
                   parseInt(res.headers['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
                 if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-              } catch (e) {
+              } catch {
                 // ignore, don't retry request
               }
             } else if (res && res.status === 403 &&
@@ -216,7 +216,7 @@ if (typeof require !== 'undefined') {
                 error.retryDelay =
                   Math.max(0, parseInt(res.headers['x-ratelimit-reset'], 10) * 1000 - Date.now());
                 if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-              } catch (e) {
+              } catch {
                 // ignore, don't retry request
               }
             }
