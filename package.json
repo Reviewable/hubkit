@@ -8,10 +8,7 @@
     "lint": "eslint *.js",
     "update": "yarn upgrade-interactive --latest"
   },
-  "repository": {
-    "type": "git",
-    "url": "git://github.com/pkaminski/hubkit.git"
-  },
+  "repository": "https://github.com/Reviewable/hubkit",
   "keywords": [
     "github",
     "api",
