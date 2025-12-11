@@ -1,6 +1,6 @@
 {
   "name": "hubkit",
-  "version": "5.7.5",
+  "version": "5.7.6",
   "description": "GitHub API library for JavaScript, promise-based, for both NodeJS and the browser",
   "main": "index.js",
   "types": "index.d.ts",
