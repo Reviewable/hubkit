@@ -725,6 +725,7 @@ if (typeof require !== 'undefined') {
         }
       }
     }
+    if ('content-type' in headers) metadata.contentType = headers['content-type'];
   }
 
   function parseExpiry(headers) {

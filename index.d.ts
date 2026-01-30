@@ -83,4 +83,5 @@ interface Metadata {
   graphRateLimit?: number;
   graphRateLimitRemaining?: number;
   oAuthScopes?: string[];
+  contentType?: string;
 }
