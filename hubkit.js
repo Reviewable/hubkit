@@ -1,7 +1,7 @@
 if (typeof require !== 'undefined') {
   /* global require */
   if (typeof axios === 'undefined') axios = require('axios');
-  if (typeof LRUCache === 'undefined') LRUCache = require('lru-cache');
+  if (typeof lrucache === 'undefined') lrucache = require('lru-cache');
 }
 
 (function() {
@@ -180,7 +180,7 @@ if (typeof require !== 'undefined') {
           error.request = {method: options.method, url: path, headers: res && res.headers};
           if (error.request.headers) delete error.request.headers.authorization;
           if (cacheable && res && res.status) {
-            options.cache.del(cacheKey);
+            options.cache.delete(cacheKey);
             if (options.stats) options.stats.record(false);
           }
           // If the request failed due to CORS, it may be because it was both preflighted and
@@ -268,7 +268,7 @@ if (typeof require !== 'undefined') {
               ) || res.data && res.data.errors
             ) {
               if (cacheable) {
-                options.cache.del(cacheKey);
+                options.cache.delete(cacheKey);
                 if (options.stats) options.stats.record(false);
               }
               let status = res.status;
@@ -471,13 +471,13 @@ if (typeof require !== 'undefined') {
                   (res.data.size || res.data.byteLength) : 1);
                 if (options.stats) options.stats.record(false, size);
                 if (res.status === 200 && (res.headers.etag || res.headers['cache-control']) &&
-                    size <= options.cache.max * options.maxItemSizeRatio) {
+                    size <= options.cache.maxSize * options.maxItemSizeRatio) {
                   options.cache.set(cacheKey, {
                     value: result, eTag: res.headers.etag, status: res.status, headers: res.headers,
                     size, expiry: parseExpiry(res.headers)
                   });
                 } else {
-                  options.cache.del(cacheKey);
+                  options.cache.delete(cacheKey);
                 }
               }
               resolve(result);
@@ -605,9 +605,9 @@ if (typeof require !== 'undefined') {
     return total ? hits / total : 0;
   }
 
-  if (typeof LRUCache !== 'undefined') {
+  if (typeof lrucache !== 'undefined') {
     Hubkit.defaults.cache =
-      new LRUCache({max: 10000000, length: item => item.size});
+      new lrucache.LRUCache({maxSize: 10000000, sizeCalculation: item => item.size});
   }
 
   async function replaceAsync(str, regex, replacerFn) {
