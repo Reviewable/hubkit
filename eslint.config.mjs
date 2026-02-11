@@ -6,7 +6,7 @@ export default [
     files: ['*.js'],
     languageOptions: {
       globals: {
-        LRUCache: true,
+        lrucache: true,
         axios: true,
         Promise: false,
         setTimeout: false

@@ -14,13 +14,7 @@ Inspired by [simple-github](https://github.com/tobie/simple-github), [octo](http
 
 You need to ensure that an ES2015-compatible `Promise` class is defined.
 
-To enable caching, make sure that [LRUCache](https://github.com/isaacs/node-lru-cache) is
-loaded. It's installed by default for Node, but in the browser you need to load `lru-cache.js`
-(perhaps from the [Bower-compatible variant](https://github.com/jmendiara/serialized-lru-cache)).  Or
-you can pass any other cache instance as an option to the constructor, as long as it has `get`,
-`set`, and `del` methods.  If the cache is enabled Hubkit respects `Cache-Control` headers on the response (that GitHub currently seems to set to 1 minute for all requests), and will return a potentially stale value from the cache unless you specify `{fresh: true}`.
-
-If you're fetching Hubkit via Bower, note that the `superagent` dependency _does not ship with browser-ready code_.  You'll need to make a dist build yourself via Browserify.  Ironically, the `npm` package for `superagent` does include browser-ready code.
+Caching is enabled by default but you can override with a custom instance of [LRUCache](https://github.com/isaacs/node-lru-cache) passed as an option to the constructor.  If the cache is enabled Hubkit respects `Cache-Control` headers on the response (that GitHub currently seems to set to 1 minute for all requests), and will return a potentially stale value from the cache unless you specify `{fresh: true}`.
 
 #### Usage
 
@@ -136,7 +130,7 @@ in NodeJS.
 * `graphHost`: The URL to use for all GraphQL requests; defaults to using the value of `host` which works fine for `github.com`, but you'll need to set a separate value when working with GitHub Enterprise.
 * `timeout`: The timeout in milliseconds to apply to the request; none by default.  If the timeout is reached, the request will abort with an error that will have a `timeout` attribute set to the value you provided.
 * `agent`: On NodeJS only, the agent to use for the HTTP connection, e.g. to do connection pooling.  You may want to consider using [agentkeepalive](https://www.npmjs.com/package/agentkeepalive) if you're making a lot of requests.
-* `cache`: An object with `get`, `set`, and `del` methods to be used as a cache for responses.  The
+* `cache`: An object with `get`, `set`, and `delete` methods to be used as a cache for responses.  The
 objects inserted into the cache will be of the form
 `{value: {...}, eTag: 'abc123', status: 200, size: 1763}`.
 You can use the (approximate) `size` field to help your cache determine when to evict items, but note that it tends to underestimate the actual size size of the object by 3-4x.  The
