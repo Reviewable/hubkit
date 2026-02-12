@@ -1,3 +1,5 @@
+import type {LRUCache} from 'lru-cache';
+
 export default class Hubkit {
   static defaults: Options & {stats: Stats};
   static Stats: StatsClass;
@@ -35,7 +37,11 @@ interface Options {
   stats?: Stats;
   agent?: any;
   corsSuccessFlags?: Record<string, boolean>;
-  cache?: any;
+  cache?: LRUCache<
+    string,
+    {promise: Promise<any>, size: number} |
+    {value: any, eTag?: string, status: number, headers: any, size: number, expiry?: number}
+  >;
   userAgent?: string;
   autoQueryRateLimit?: boolean;
 
