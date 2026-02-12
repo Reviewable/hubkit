@@ -41,7 +41,7 @@ interface Options {
     string,
     {promise: Promise<any>, size: number} |
     {value: any, eTag?: string, status: number, headers: any, size: number, expiry?: number}
-  >;
+  > | null;
   userAgent?: string;
   autoQueryRateLimit?: boolean;
 
