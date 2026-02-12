@@ -467,8 +467,10 @@ if (typeof require !== 'undefined') {
                 }
               }
               if (cacheable) {
-                const size = rawData ? rawData.length : (res.data ?
-                  (res.data.size || res.data.byteLength) : 1);
+                const size =
+                  rawData ? rawData.length || rawData.size || rawData.byteLength :
+                  res.data ? res.data.size || res.data.byteLength :
+                  1;
                 if (options.stats) options.stats.record(false, size);
                 if (res.status === 200 && (res.headers.etag || res.headers['cache-control']) &&
                     size <= options.cache.maxSize * options.maxItemSizeRatio) {
