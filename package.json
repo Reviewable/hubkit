@@ -6,7 +6,9 @@
   "types": "index.d.ts",
   "scripts": {
     "lint": "eslint *.js",
-    "update": "yarn upgrade-interactive --latest"
+    "update": "yarn up -R '*' && yarn dedupe --strategy highest",
+    "latest": "yarn npm-check-updates -i -m --packageManager yarn --install never && yarn install",
+    "upgrade": "reviewable-upgrade"
   },
   "repository": "https://github.com/Reviewable/hubkit",
   "keywords": [
@@ -23,13 +25,14 @@
   "engines": {
     "node": ">=14.0"
   },
-  "packageManager": "yarn@1.22.22",
+  "packageManager": "yarn@4.13.0",
   "dependencies": {
     "axios": "^1.13.2",
     "lru-cache": "11.x"
   },
   "devDependencies": {
     "eslint": "^9.39.1",
+    "npm-check-updates": "^20.0.0",
     "reviewable-configs": "Reviewable/reviewable-configs"
   }
 }
