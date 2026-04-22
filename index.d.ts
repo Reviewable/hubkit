@@ -81,7 +81,7 @@ interface Stats {
   hitSizeRate: number;
 }
 
-interface Metadata {
+export interface Metadata {
   rateLimit?: number;
   rateLimitRemaining?: number;
   searchRateLimit?: number;
