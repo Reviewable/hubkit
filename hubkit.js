@@ -1,6 +1,5 @@
 if (typeof require !== 'undefined') {
   /* global require */
-  if (typeof axios === 'undefined') axios = require('axios');
   if (typeof lrucache === 'undefined') lrucache = require('lru-cache');
 }
 
@@ -9,11 +8,6 @@ if (typeof require !== 'undefined') {
 
   /* global process */
   const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
-
-  const NETWORK_ERROR_CODES = [
-    'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EADDRINFO', 'ESOCKETTIMEDOUT', 'ECONNABORTED',
-    'ERR_NETWORK'
-  ];
 
   class Directive {
     constructor(arg, body, options, hubkit) {
@@ -128,8 +122,8 @@ if (typeof require !== 'undefined') {
 
     static defaults = {
       method: 'GET', host: 'https://api.github.com', perPage: 100, allPages: true, maxTries: 3,
-      maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats(), agent: false,
-      corsSuccessFlags: {}, gheVersion: undefined, scopes: undefined, apiVersion: undefined
+      maxItemSizeRatio: 0.1, metadata: Hubkit, stats: new Hubkit.Stats(),
+      gheVersion: undefined, scopes: undefined, apiVersion: undefined
     };
 
     static RETRY = {};  // marker object
@@ -147,7 +141,8 @@ if (typeof require !== 'undefined') {
       if (options.onRequest) await options.onRequest(options);
       path = interpolatePath(path, options);
 
-      let cachedItem = null, cacheKey, cacheable = options.cache && options.method === 'GET';
+      let cachedItem = null, cacheKey;
+      const cacheable = options.cache && options.method === 'GET';
       if (cacheable) {
         // Pin cached value, in case it gets evicted during the request
         cacheKey = computeCacheKey(path, options);
@@ -177,44 +172,33 @@ if (typeof require !== 'undefined') {
         send(options.body, options._cause || 'initial');
 
         function handleError(error, res) {
-          error.request = {method: options.method, url: path, headers: res && res.headers};
-          if (error.request.headers) delete error.request.headers.authorization;
+          const headers = res && Object.fromEntries(
+            [...res.headers].filter(([k]) => k !== 'authorization'));
+          error.request = {method: options.method, url: path, headers};
           if (cacheable && res && res.status) {
             options.cache.delete(cacheKey);
             if (options.stats) options.stats.record(false);
           }
-          // If the request failed due to CORS, it may be because it was both preflighted and
-          // redirected.  Attempt to recover by reissuing it as a simple request without
-          // preflight, which requires getting rid of all extraneous headers.
-          if (cacheable && /Network Error/.test(error.originalMessage)) {
-            cacheable = false;
-            retry();
-            return;
-          }
           let value;
           if (options.onError) value = options.onError(error);
           if (value === undefined) {
-            if (NETWORK_ERROR_CODES.indexOf(error.code) >= 0 ||
-              [500, 502, 503, 504].indexOf(res && res.status) >= 0 ||
-              error.originalMessage === 'socket hang up' ||
-              error.originalMessage === 'Unexpected end of input'
-            ) {
+            if (error.name === 'AbortError' || error.name === 'TypeError' ||
+              [500, 502, 503, 504].indexOf(res && res.status) >= 0) {
               value = Hubkit.RETRY;
-              options.agent = false;
-            } else if (res && res.status === 403 && res.headers['retry-after']) {
+            } else if (res && res.status === 403 && res.headers.get('retry-after')) {
               try {
                 error.retryDelay =
-                  parseInt(res.headers['retry-after'].replace(/[^\d]*$/, ''), 10) * 1000;
+                  parseInt(res.headers.get('retry-after').replace(/[^\d]*$/, ''), 10) * 1000;
                 if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
               } catch {
                 // ignore, don't retry request
               }
             } else if (res && res.status === 403 &&
-                res.headers['x-ratelimit-remaining'] === '0' &&
-                res.headers['x-ratelimit-reset']) {
+                res.headers.get('x-ratelimit-remaining') === '0' &&
+                res.headers.get('x-ratelimit-reset')) {
               try {
                 error.retryDelay =
-                  Math.max(0, parseInt(res.headers['x-ratelimit-reset'], 10) * 1000 - Date.now());
+                  Math.max(0, parseInt(res.headers.get('x-ratelimit-reset'), 10) * 1000 - Date.now());
                 if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
               } catch {
                 // ignore, don't retry request
@@ -247,9 +231,6 @@ if (typeof require !== 'undefined') {
 
         const onComplete = (res, rawData) => {
           extractMetadata(path, res.headers, options.metadata);
-          if (res.headers['access-control-allow-origin']) {
-            options.corsSuccessFlags[options.host] = true;
-          }
 
           try {
             if (res.status === 304) {
@@ -317,14 +298,14 @@ if (typeof require !== 'undefined') {
                 }
                 statusError.path = path;  // This is the fully expanded URL at this point.
                 statusError.pathPattern = options.pathPattern;
-                statusError.response = res;
+                statusError.response = {...res, headers: Object.fromEntries(res.headers)};
                 if (options.logTag) statusError.logTag = options.logTag;
                 statusError.fingerprint =
                   ['Hubkit', options.method, options.logTag || options.pathPattern, `${status}`];
                 handleError(statusError, res);
               }
             } else if (options.media === 'raw' && !(
-              /^(?:text\/plain|application\/octet-stream) *;?/.test(res.headers['content-type'])
+              /^(?:text\/plain|application\/octet-stream) *;?/.test(res.headers.get('content-type'))
             )) {
               // retry if github disregards 'raw'
               handleError(new Error(
@@ -332,16 +313,12 @@ if (typeof require !== 'undefined') {
               ), res);
             } else {
               let nextUrl;
-              if (res.headers.link) {
-                const match = /<([^>]+?)>;\s*rel="next"/.exec(res.headers.link);
+              if (res.headers.get('link')) {
+                const match = /<([^>]+?)>;\s*rel="next"/.exec(res.headers.get('link'));
                 nextUrl = match && match[1];
                 if (nextUrl && !(options.method === 'GET' || options.method === 'HEAD')) {
                   throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
                 }
-              }
-              if (!res.data && rawData &&
-                  /\bformat=json\b/.test(res.headers['x-github-media-type'])) {
-                res.data = JSON.parse(rawData);
               }
               if (detectApi(path) === 'graph') {
                 let root = res.data.data;
@@ -472,11 +449,11 @@ if (typeof require !== 'undefined') {
                   res.data ? res.data.size || res.data.byteLength :
                   1;
                 if (options.stats) options.stats.record(false, size);
-                if (res.status === 200 && (res.headers.etag || res.headers['cache-control']) &&
+                if (res.status === 200 && (res.headers.get('etag') || res.headers.get('cache-control')) &&
                     size <= options.cache.maxSize * options.maxItemSizeRatio) {
                   options.cache.set(cacheKey, {
-                    value: result, eTag: res.headers.etag, status: res.status, headers: res.headers,
-                    size, expiry: parseExpiry(res.headers)
+                    value: result, eTag: res.headers.get('etag'), status: res.status,
+                    headers: res.headers, size, expiry: parseExpiry(res.headers)
                   });
                 } else {
                   options.cache.delete(cacheKey);
@@ -490,18 +467,6 @@ if (typeof require !== 'undefined') {
         };
 
         function onError(error) {
-          // If we get an error response without a status, then it's not a real error coming back
-          // from the server but some kind of synthetic response Axios concocted for us.  Treat it
-          // as a generic network error.
-          if (error.response && error.response.status) return onComplete(error.response);
-
-          if ((/Network Error/.test(error.message) || error.message === '0') &&
-              (options.corsSuccessFlags[options.host] ||
-                !cacheable && (options.method === 'GET' || options.method === 'HEAD'))
-          ) {
-            error.message = 'Request terminated abnormally, network may be offline';
-          }
-          if (error.message === 'maxContentLength size of -1 exceeded') error.message = 'aborted';
           error.originalMessage = error.message;
           error.message = formatError('Hubkit', error.message);
           error.fingerprint =
@@ -517,18 +482,9 @@ if (typeof require !== 'undefined') {
             const config = {
               url: path,
               method: options.method,
-              timeout: timeout || 0,
+              timeout,
               params: {},
-              headers: {},
-              transformResponse: [data => {
-                rawData = data;
-                // avoid axios default transform for 'raw'
-                // https://github.com/axios/axios/issues/907
-                if (options.media !== 'raw') {
-                  return axios.defaults.transformResponse[0](data);
-                }
-                return data;
-              }]
+              headers: {}
             };
             addHeaders(config, options, cachedItem);
 
@@ -540,11 +496,12 @@ if (typeof require !== 'undefined') {
 
             if (body) {
               if (options.method === 'GET') config.params = Object.assign(config.params, body);
-              else config.data = body;
+              else config.body = body;
             }
             let received = false;
             try {
-              const res = await axios(config);
+              const res = await fetchResponse(config, options);
+              rawData = res.rawData;
               received = true;
               const api = detectApi(path);
               const cost = api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
@@ -675,25 +632,19 @@ if (typeof require !== 'undefined') {
   function addHeaders(config, options, cachedItem) {
     /* eslint-disable dot-notation */
     if (cachedItem && cachedItem.eTag) config.headers['If-None-Match'] = cachedItem.eTag;
-    if (isNode && options.agent) {
-      config[/^https:/.test(options.host) ? 'httpsAgent' : 'httpAgent'] = options.agent;
-    }
     if (options.token) {
       config.headers['Authorization'] = `token ${options.token}`;
     } else if (options.username && options.password) {
       throw new Error('Username / password authentication is no longer supported');
     } else if (options.clientId && options.clientSecret) {
-      config.auth = {
-        username: options.clientId,
-        password: options.clientSecret
-      };
+      config.headers['Authorization'] =
+        `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
     }
     if (options.userAgent) config.headers['User-Agent'] = options.userAgent;
     if (options.media) config.headers['Accept'] = `application/vnd.github.${options.media}`;
     if (options.method === 'GET' || options.method === 'HEAD') {
       config.params['per_page'] = options.perPage;
     }
-    if (!isNode && options.responseType) config.responseType = options.responseType;
     // We can't use Cache-Control because it's not
     // allowed by Github's cross-domain request headers
     if (!isNode && (options.method === 'GET' || options.method === 'HEAD')) {
@@ -705,19 +656,62 @@ if (typeof require !== 'undefined') {
     /* eslint-enable dot-notation */
   }
 
+  async function fetchResponse(config, options) {
+    let timeoutId;
+    try {
+      const init = {method: config.method, headers: config.headers};
+      if (config.body) {
+        init.body = JSON.stringify(config.body);
+        init.headers['Content-Type'] = 'application/json';
+      }
+      if (config.timeout) {
+        const controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), config.timeout);
+        init.signal = controller.signal;
+      }
+
+      const url = new URL(config.url);
+      for (const key in config.params) url.searchParams.set(key, config.params[key]);
+      const response = await fetch(url, init);
+      const rawData = await readResponseBody(response, options);
+      return {
+        status: response.status,
+        headers: response.headers,
+        data: parseResponseData(rawData, response.headers, options),
+        rawData
+      };
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
+
+  function readResponseBody(response, options) {
+    if (options.responseType === 'arraybuffer') return response.arrayBuffer();
+    if (options.responseType === 'blob') return response.blob();
+    return response.text();
+  }
+
+  function parseResponseData(rawData, headers, options) {
+    if (options.media === 'raw' || options.responseType) return rawData;
+    if (!rawData) return '';
+    const contentType = headers.get('content-type') || '';
+    if (/^application\/(?:[^\s;]+\+)?json\s*(?:;|$)/i.test(contentType)) return JSON.parse(rawData);
+    return rawData;
+  }
+
   function extractMetadata(path, headers, metadata) {
     if (!(headers && metadata)) return;
     const api = detectApi(path);
     const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
-    metadata[rateName] = headers['x-ratelimit-limit'] &&
-      parseInt(headers['x-ratelimit-limit'], 10);
-    metadata[`${rateName}Remaining`] = headers['x-ratelimit-remaining'] &&
-      parseInt(headers['x-ratelimit-remaining'], 10);
+    metadata[rateName] = headers.get('x-ratelimit-limit') &&
+      parseInt(headers.get('x-ratelimit-limit'), 10);
+    metadata[`${rateName}Remaining`] = headers.get('x-ratelimit-remaining') &&
+      parseInt(headers.get('x-ratelimit-remaining'), 10);
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
     // missing.
-    if ('x-oauth-scopes' in headers) {
+    if (headers.has('x-oauth-scopes')) {
       metadata.oAuthScopes = [];
-      const scopes = (headers['x-oauth-scopes'] || '').split(/\s*,\s*/);
+      const scopes = (headers.get('x-oauth-scopes') || '').split(/\s*,\s*/);
       if (!(scopes.length === 1 && scopes[0] === '')) {
         // GitHub will sometimes return duplicate scopes in the list, so uniquefy them.
         scopes.sort();
@@ -727,11 +721,11 @@ if (typeof require !== 'undefined') {
         }
       }
     }
-    if ('content-type' in headers) metadata.contentType = headers['content-type'];
+    if (headers.has('content-type')) metadata.contentType = headers.get('content-type');
   }
 
   function parseExpiry(headers) {
-    const match = (headers['cache-control'] || '').match(/(^|[,\s])max-age=(\d+)/);
+    const match = (headers.get('cache-control') || '').match(/(^|[,\s])max-age=(\d+)/);
     if (match) return Date.now() + 1000 * parseInt(match[2], 10);
   }
 

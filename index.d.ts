@@ -29,14 +29,12 @@ interface Options {
   immutable?: boolean;
   fresh?: boolean;
   stale?: boolean;
-  responseType?: string;
+  responseType?: 'text' | 'arraybuffer' | 'blob';
   maxTries?: number;
   timeout?: number;
   maxItemSizeRatio?: number;
   metadata?: Metadata;
   stats?: Stats;
-  agent?: any;
-  corsSuccessFlags?: Record<string, boolean>;
   cache?: LRUCache<
     string,
     {promise: Promise<any>, size: number} |
@@ -65,7 +63,6 @@ interface Options {
     response?: any,
     logTag?: string,
     fingerprint?: string[],
-    timeout?: boolean,
   }):
     undefined | typeof Hubkit.RETRY | typeof Hubkit.DONT_RETRY | any;
 }
