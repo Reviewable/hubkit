@@ -128,8 +128,7 @@ include:
 in NodeJS.
 * `host`: The URL to prepend to all request paths; defaults to `https://api.github.com`.
 * `graphHost`: The URL to use for all GraphQL requests; defaults to using the value of `host` which works fine for `github.com`, but you'll need to set a separate value when working with GitHub Enterprise.
-* `timeout`: The timeout in milliseconds to apply to the request; none by default.  If the timeout is reached, the request will abort with an error that will have a `timeout` attribute set to the value you provided.
-* `agent`: On NodeJS only, the agent to use for the HTTP connection, e.g. to do connection pooling.  You may want to consider using [agentkeepalive](https://www.npmjs.com/package/agentkeepalive) if you're making a lot of requests.
+* `timeout`: The timeout in milliseconds to apply to the request; none by default.  If the timeout is reached, the request will abort with an `AbortError`.
 * `cache`: An instance of [LRUCache](https://github.com/isaacs/node-lru-cache).  The
 objects inserted into the cache will be of the form
 `{value: {...}, eTag: 'abc123', status: 200, headers: {...}, size: 1763, expiry: 1770853094}`.
@@ -149,7 +148,7 @@ content.  Valid values are:
 * `body`: The contents of the request to send, typically a JSON-friendly object.
 * `variables`: For GraphQL queries, variables to pass to the server along with the query.
 * `autoQueryRateLimit`: For GraphQL queries, whether to inject a `rateLimit {cost, remaining}` property into every query.  This is used to figure out the cost information passed to `onReceive` (see below).
-* `responseType`: The XHR2 response type if you want to receive raw binary data; one of `text`, `arraybuffer`, `blob`, or `document`.  Only useful when fetching file blobs.
+* `responseType`: The response type if you want to receive raw data; one of `text`, `arraybuffer`, or `blob`.  Only useful when fetching file blobs.
 * `perPage`: The number of items to return per page of response.  Defaults to 100.
 * `allPages`: Whether to automatically fetch all pages by following the `next` links and concatenate
 the results before returning them.  Defaults to true.  If set to false and a result has more pages,
@@ -162,7 +161,7 @@ of items.  This also works for GraphQL queries, as long as your query has a `$af
 * `onError`: A function to be called when an error occurs, either in the request itself or an
 unexpected 4xx or 5xx response.  If it's an error response, the error object will have `status`,
 `method`, `path`, and `response` attributes.  If the function returns `undefined`, the promise will
-be rejected as usual (or the request retried in some special cases, like socket hang ups and abuse quota 403s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
+be rejected as usual (or the request retried in some special cases, like network failures and abuse quota 403s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
 * `maxTries`: The maximum number of times that a request will be tried (including the original call) if `onError` keeps returning `Hubkit.RETRY`.
 * `onSend`: A function to be called before every individual request gets sent to GitHub.  The sole argument will be a string indicating the reason for the request: `initial` for the initial request, `page` for an automatic next page request (if the `allPages` option is on), and `retry` for an explicit or automatic retry.  The function can return a duration in milliseconds that will override the timeout provided in the options (if any).  The function can also return a promise for the above, in which case the request will be held until the promise is resolved.
 * `onReceive`. A function to be called after a reponse (or error) is received from GitHub.  If a response was received then the function will be passed an object with properties `api` (indicating the API used, and hence the quota pool) and `cost` (how much quota was used by this request).  The function's return value, if any, is discarded.
