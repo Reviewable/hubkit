@@ -128,7 +128,7 @@ include:
 in NodeJS.
 * `host`: The URL to prepend to all request paths; defaults to `https://api.github.com`.
 * `graphHost`: The URL to use for all GraphQL requests; defaults to using the value of `host` which works fine for `github.com`, but you'll need to set a separate value when working with GitHub Enterprise.
-* `timeout`: The timeout in milliseconds to apply to the request; none by default.  If the timeout is reached, the request will abort with an `AbortError`.
+* `timeout`: The timeout in milliseconds to apply to the request; none by default.  If the timeout is reached, the request will abort with a `TimeoutError`.
 * `cache`: An instance of [LRUCache](https://github.com/isaacs/node-lru-cache).  The
 objects inserted into the cache will be of the form
 `{value: {...}, eTag: 'abc123', status: 200, headers: {...}, size: 1763, expiry: 1770853094}`.

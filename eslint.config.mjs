@@ -7,9 +7,8 @@ export default [
     languageOptions: {
       globals: {
         lrucache: true,
-        AbortController: false,
+        AbortSignal: false,
         btoa: false,
-        clearTimeout: false,
         fetch: false,
         Promise: false,
         setTimeout: false,
