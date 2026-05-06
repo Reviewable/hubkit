@@ -8,8 +8,10 @@ export default [
       globals: {
         lrucache: true,
         AbortController: false,
+        AbortSignal: false,
         btoa: false,
         clearTimeout: false,
+        DOMException: false,
         fetch: false,
         Promise: false,
         setTimeout: false,

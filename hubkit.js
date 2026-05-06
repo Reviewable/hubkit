@@ -196,8 +196,8 @@ if (typeof require !== 'undefined') {
                 res.headers.get('x-ratelimit-remaining') === '0' &&
                 res.headers.get('x-ratelimit-reset')) {
               try {
-                error.retryDelay =
-                  Math.max(0, parseInt(res.headers.get('x-ratelimit-reset'), 10) * 1000 - Date.now());
+                const reset = parseInt(res.headers.get('x-ratelimit-reset'), 10);
+                error.retryDelay = Math.max(0, reset * 1000 - Date.now());
                 if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
               } catch {
                 // ignore, don't retry request
@@ -657,38 +657,47 @@ if (typeof require !== 'undefined') {
   }
 
   async function fetchResponse(config, options) {
-    let timeoutId;
-    try {
-      const init = {method: config.method, headers: config.headers};
-      if (config.body) {
-        init.body = JSON.stringify(config.body);
-        init.headers['Content-Type'] = 'application/json';
-      }
-      if (config.timeout) {
-        const controller = new AbortController();
-        timeoutId = setTimeout(() => controller.abort(), config.timeout);
-        init.signal = controller.signal;
-      }
-
-      const url = new URL(config.url);
-      for (const key in config.params) url.searchParams.set(key, config.params[key]);
-      let response, rawData;
-      try {
-        response = await fetch(url, init);
-        rawData = await readResponseBody(response, options);
-      } catch (error) {
-        error.networkFailure = true;
-        throw error;
-      }
-      return {
-        status: response.status,
-        headers: response.headers,
-        data: parseResponseData(rawData, response.headers, options),
-        rawData
-      };
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+    const init = {method: config.method, headers: config.headers};
+    if (config.body) {
+      init.body = JSON.stringify(config.body);
+      init.headers['Content-Type'] = 'application/json';
     }
+    const url = new URL(config.url);
+    for (const key in config.params) url.searchParams.set(key, config.params[key]);
+    let timeout;
+    if (config.timeout) {
+      timeout = createTimeoutSignal(config.timeout);
+      init.signal = timeout.signal;
+    }
+    let response, rawData;
+    try {
+      response = await fetch(url, init);
+      rawData = await readResponseBody(response, options);
+    } catch (error) {
+      error.networkFailure = true;
+      throw error;
+    } finally {
+      timeout?.destroy?.();
+    }
+    return {
+      status: response.status,
+      headers: response.headers,
+      data: parseResponseData(rawData, response.headers, options),
+      rawData
+    };
+  }
+
+  function createTimeoutSignal(timeout) {
+    if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+      return {signal: AbortSignal.timeout(timeout)};
+    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      const error = new Error('The operation was aborted due to timeout');
+      error.name = 'TimeoutError';
+      controller.abort(error);
+    }, timeout);
+    return {signal: controller.signal, destroy() {clearTimeout(timeoutId);}};
   }
 
   function readResponseBody(response, options) {
