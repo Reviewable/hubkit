@@ -10,6 +10,7 @@ export default [
         AbortController: false,
         btoa: false,
         clearTimeout: false,
+        DOMException: false,
         fetch: false,
         Promise: false,
         setTimeout: false,
