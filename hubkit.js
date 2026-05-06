@@ -657,38 +657,29 @@ if (typeof require !== 'undefined') {
   }
 
   async function fetchResponse(config, options) {
-    let timeoutId;
-    try {
-      const init = {method: config.method, headers: config.headers};
-      if (config.body) {
-        init.body = JSON.stringify(config.body);
-        init.headers['Content-Type'] = 'application/json';
-      }
-      if (config.timeout) {
-        const controller = new AbortController();
-        timeoutId = setTimeout(() => controller.abort(), config.timeout);
-        init.signal = controller.signal;
-      }
-
-      const url = new URL(config.url);
-      for (const key in config.params) url.searchParams.set(key, config.params[key]);
-      let response, rawData;
-      try {
-        response = await fetch(url, init);
-        rawData = await readResponseBody(response, options);
-      } catch (error) {
-        error.networkFailure = true;
-        throw error;
-      }
-      return {
-        status: response.status,
-        headers: response.headers,
-        data: parseResponseData(rawData, response.headers, options),
-        rawData
-      };
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+    const init = {method: config.method, headers: config.headers};
+    if (config.body) {
+      init.body = JSON.stringify(config.body);
+      init.headers['Content-Type'] = 'application/json';
     }
+    if (config.timeout) init.signal = AbortSignal.timeout(config.timeout);
+
+    const url = new URL(config.url);
+    for (const key in config.params) url.searchParams.set(key, config.params[key]);
+    let response, rawData;
+    try {
+      response = await fetch(url, init);
+      rawData = await readResponseBody(response, options);
+    } catch (error) {
+      error.networkFailure = true;
+      throw error;
+    }
+    return {
+      status: response.status,
+      headers: response.headers,
+      data: parseResponseData(rawData, response.headers, options),
+      rawData
+    };
   }
 
   function readResponseBody(response, options) {
