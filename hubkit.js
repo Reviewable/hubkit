@@ -611,7 +611,7 @@ if (typeof require !== 'undefined') {
       path = a[1];
     }
     options.method = options.method.toUpperCase();
-    options.pathPattern = path;
+    options.pathPattern ??= path;
     path = interpolate(path, options);
     if (!/^http/.test(path)) path = options.host + path;
     return path;
