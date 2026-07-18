@@ -163,7 +163,7 @@ if (typeof require !== 'undefined') {
               options.stats.record(true, cachedItem.size);
             }
           }
-          return cachedItem.promise || Promise.resolve(cachedItem.value);
+          return cachedItem.promise || Promise.resolve(attachFreshNext(cachedItem, this, options));
         }
       }
 
@@ -230,6 +230,9 @@ if (typeof require !== 'undefined') {
 
         const onComplete = (res, rawData) => {
           extractMetadata(path, res.headers, options.metadata);
+          // Set below for a paginated first page.  Kept out of the cached value so that a fresh
+          // `next` pager can be bound to the serving request's context on each cache hit.
+          let nextFactory;
 
           try {
             if (res.status === 304) {
@@ -240,7 +243,7 @@ if (typeof require !== 'undefined') {
               extractMetadata(path, res.headers, options.metadata);
               cachedItem.expiry = parseExpiry(res.headers);
               if (options.stats) options.stats.record(true, cachedItem.size);
-              resolve(cachedItem.value);
+              resolve(attachFreshNext(cachedItem, this, options));
             } else if (
               !(res.status >= 200 && res.status < 300 ||
                 options.boolean && res.status === 404 && res.data &&
@@ -378,18 +381,17 @@ if (typeof require !== 'undefined') {
                       send(options.body, 'page');
                       return;  // Don't resolve yet, more pages to come
                     }
-                    result.next = () => {
-                      return this.request(
-                        path,
-                        defaults({
-                          _cause: 'page', body: defaults({
-                            variables: defaults({
-                              after: cursor
-                            }, options.body.variables)
-                          }, options.body)
-                        }, options)
-                      );
-                    };
+                    nextFactory = (self, opts) => () => self.request(
+                      path,
+                      defaults({
+                        _cause: 'page', body: defaults({
+                          variables: defaults({
+                            after: cursor
+                          }, opts.body.variables)
+                        }, opts.body)
+                      }, opts)
+                    );
+                    result.next = nextFactory(this, options);
                   }
                 } else {
                   result = res.data.data;
@@ -421,9 +423,9 @@ if (typeof require !== 'undefined') {
                     send(null, 'page');
                     return;  // Don't resolve yet, more pages to come.
                   }
-                  result.next = () => {
-                    return this.request(nextUrl, defaults({_cause: 'page', body: null}, options));
-                  };
+                  nextFactory = (self, opts) =>
+                    () => self.request(nextUrl, defaults({_cause: 'page', body: null}, opts));
+                  result.next = nextFactory(this, options);
                 }
               } else {
                 if (nextUrl || result) {
@@ -452,7 +454,7 @@ if (typeof require !== 'undefined') {
                     (res.headers.get('etag') || res.headers.get('cache-control')) &&
                     size <= options.cache.maxSize * options.maxItemSizeRatio) {
                   options.cache.set(cacheKey, {
-                    value: result, eTag: res.headers.get('etag'), status: res.status,
+                    value: result, nextFactory, eTag: res.headers.get('etag'), status: res.status,
                     headers: res.headers, size, expiry: parseExpiry(res.headers)
                   });
                 } else {
@@ -768,6 +770,18 @@ if (typeof require !== 'undefined') {
 
   function checkCache(options, cacheKey) {
     return options.cache.get(cacheKey);
+  }
+
+  // Return a cached response, but with its `next` pager rebound to the current request so that
+  // follow-up pages run in the caller's context (auth token, task lease, etc.) rather than the
+  // possibly stale context captured when the value was first cached.  The value is shallow-cloned
+  // so concurrent servings of the same entry don't clobber each other's `next`.
+  function attachFreshNext(cachedItem, self, options) {
+    if (!cachedItem.nextFactory) return cachedItem.value;
+    const value =
+      Array.isArray(cachedItem.value) ? cachedItem.value.slice() : {...cachedItem.value};
+    value.next = cachedItem.nextFactory(self, options);
+    return value;
   }
 
   function satisfiesGheVersion(options, minVersion) {
