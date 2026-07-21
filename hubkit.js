@@ -9,6 +9,9 @@ if (typeof require !== 'undefined') {
   /* global process */
   const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
+  // Carries a paginated response's pager factory so `next` can be rebuilt for each caller.
+  const NEXT_FACTORY = Symbol('hubkit.nextFactory');
+
   class Directive {
     constructor(arg, body, options, hubkit) {
       this.arg = arg;
@@ -163,7 +166,9 @@ if (typeof require !== 'undefined') {
               options.stats.record(true, cachedItem.size);
             }
           }
-          return cachedItem.promise || Promise.resolve(cachedItem.value);
+          return cachedItem.promise ?
+            cachedItem.promise.then(value => attachFreshNext(value, this, options)) :
+            Promise.resolve(attachFreshNext(cachedItem.value, this, options));
         }
       }
 
@@ -240,7 +245,7 @@ if (typeof require !== 'undefined') {
               extractMetadata(path, res.headers, options.metadata);
               cachedItem.expiry = parseExpiry(res.headers);
               if (options.stats) options.stats.record(true, cachedItem.size);
-              resolve(cachedItem.value);
+              resolve(attachFreshNext(cachedItem.value, this, options));
             } else if (
               !(res.status >= 200 && res.status < 300 ||
                 options.boolean && res.status === 404 && res.data &&
@@ -378,18 +383,18 @@ if (typeof require !== 'undefined') {
                       send(options.body, 'page');
                       return;  // Don't resolve yet, more pages to come
                     }
-                    result.next = () => {
-                      return this.request(
-                        path,
-                        defaults({
-                          _cause: 'page', body: defaults({
-                            variables: defaults({
-                              after: cursor
-                            }, options.body.variables)
-                          }, options.body)
-                        }, options)
-                      );
-                    };
+                    const makeNext = (self, opts) => () => self.request(
+                      path,
+                      defaults({
+                        _cause: 'page', body: defaults({
+                          variables: defaults({
+                            after: cursor
+                          }, opts.body.variables)
+                        }, opts.body)
+                      }, opts)
+                    );
+                    result.next = makeNext(this, options);
+                    result[NEXT_FACTORY] = makeNext;
                   }
                 } else {
                   result = res.data.data;
@@ -421,9 +426,10 @@ if (typeof require !== 'undefined') {
                     send(null, 'page');
                     return;  // Don't resolve yet, more pages to come.
                   }
-                  result.next = () => {
-                    return this.request(nextUrl, defaults({_cause: 'page', body: null}, options));
-                  };
+                  const makeNext = (self, opts) =>
+                    () => self.request(nextUrl, defaults({_cause: 'page', body: null}, opts));
+                  result.next = makeNext(this, options);
+                  result[NEXT_FACTORY] = makeNext;
                 }
               } else {
                 if (nextUrl || result) {
@@ -768,6 +774,24 @@ if (typeof require !== 'undefined') {
 
   function checkCache(options, cacheKey) {
     return options.cache.get(cacheKey);
+  }
+
+  // Return a shared response with its `next` pager rebound to the current request, so follow-up
+  // pages run in the caller's context (auth token, task lease, etc.) rather than the possibly
+  // stale context captured when the response was first fetched.  This covers every way a response
+  // gets handed out more than once: a settled cache hit, a 304 revalidation, and a concurrent
+  // caller awaiting an in-flight request.  The value is shallow-cloned so those callers don't
+  // clobber each other's `next`.
+  function attachFreshNext(value, self, options) {
+    const makeNext = value && value[NEXT_FACTORY];
+    if (!makeNext) return value;
+    const clone = Array.isArray(value) ? value.slice() : {...value};
+    // Carry the factory onto the clone as well, since a clone can itself be served again: it's
+    // what an in-flight request resolves with, and concurrent callers awaiting that same request
+    // need to rebind off it.  (Array slicing drops symbol-keyed properties.)
+    clone[NEXT_FACTORY] = makeNext;
+    clone.next = makeNext(self, options);
+    return clone;
   }
 
   function satisfiesGheVersion(options, minVersion) {
