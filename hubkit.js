@@ -822,10 +822,7 @@ if (typeof require !== 'undefined') {
     return fieldsPromise;
   }
 
-  if (typeof angular !== 'undefined') {
-    /* global angular */
-    angular.module('hubkit', []).constant('Hubkit', Hubkit);
-  } else if (isNode) {
+  if (isNode) {
     /* global module */
     module.exports = Hubkit;
   } else if (typeof self === 'undefined') {
