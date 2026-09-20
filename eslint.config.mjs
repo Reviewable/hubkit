@@ -20,7 +20,7 @@ export default [
     }
   },
   {
-    files: ['index.js'],
+    files: ['index.js', '*.test.js'],
     languageOptions: {
       sourceType: 'commonjs'
     }

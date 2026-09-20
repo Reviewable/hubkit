@@ -132,6 +132,45 @@ if (typeof require !== 'undefined') {
     static RETRY = {};  // marker object
     static DONT_RETRY = {};  // marker object
 
+    static identify403Error(error) {
+      const message = typeof error === 'string' ? error : error?.message;
+      if (/account was suspended/.test(message)) {
+        return {code: 'account-suspended', category: 'badauth', error: 'GitHub account suspended'};
+      }
+      if (/email address must be verified/.test(message)) {
+        return {code: 'email-unverified', category: 'badauth', error: 'Email address not verified'};
+      }
+      if (/SAML enforcement/.test(message)) {
+        return {
+          code: 'saml-enforcement', category: 'badauth', error: 'Incomplete SAML authorization'
+        };
+      }
+      if (/must have admin rights/i.test(message)) {
+        return {code: 'admin-required', category: 'badauth', error: 'No admin rights'};
+      }
+      if (/enable two-factor authentication/i.test(message)) {
+        return {
+          code: 'two-factor-required', category: 'badauth',
+          error: 'Two-factor authentication not set up'
+        };
+      }
+      if (/enabled OAuth App access restrictions/.test(message)) {
+        return {
+          code: 'oauth-app-restrictions', category: 'thirdparty',
+          error: 'Third-party app restrictions in effect'
+        };
+      }
+      if (/access blocked/i.test(message)) {
+        return {code: 'access-blocked', category: 'notfound', error: 'Repository access blocked'};
+      }
+      if (/You have exceeded a secondary rate limit/.test(message)) {
+        return {code: 'secondary-rate-limit', quota: true};
+      }
+      if (/rate limit|request quota|abuse detection/i.test(message)) {
+        return {code: 'rate-limit', quota: true};
+      }
+    }
+
     scope(options) {
       options = defaults({}, options);
       return new Hubkit(defaults(options, this.defaultOptions));
