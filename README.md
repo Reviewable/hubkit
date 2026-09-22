@@ -118,6 +118,42 @@ object (see below) or on `Hubkit` if you didn't set one.
 
 You can augment a Hubkit instance by calling `gh.scope({...moreOptions})` to return a new instance that combines both sets of options.
 
+#### Identifying 403 errors
+
+`Hubkit.identify403Error(error)` identifies known GitHub 403 causes from a message string or an
+object with a `message` property, including an `Error`. It accepts raw GitHub messages and messages
+prefixed by Hubkit or a server response wrapper. Unknown messages return `undefined`.
+It only examines the message; the caller should check the HTTP status as appropriate. The quota
+patterns can also be used for 429 errors.
+
+The result contains a stable, detailed `code`. Authentication and access failures also include a
+broad `category` and a concise `error` description. Quota failures instead have `quota: true` and
+no `category` or `error`, so callers can supply their own retry guidance.
+
+| `code` | `category` | `error` | `quota` |
+| --- | --- | --- | --- |
+| `account-suspended` | `badauth` | GitHub account suspended | |
+| `email-unverified` | `badauth` | Email address not verified | |
+| `saml-enforcement` | `badauth` | Incomplete SAML authorization | |
+| `admin-required` | `badauth` | No admin rights | |
+| `two-factor-required` | `badauth` | Two-factor authentication not set up | |
+| `oauth-app-restrictions` | `thirdparty` | Third-party app restrictions in effect | |
+| `access-blocked` | `notfound` | Repository access blocked | |
+| `secondary-rate-limit` | | | `true` |
+| `rate-limit` | | | `true` |
+
+```javascript
+const reason = Hubkit.identify403Error(error);
+if (reason?.category) {
+  // Consumers using broad error codes can retain their existing representation.
+  return {code: reason.category, error: reason.error};
+}
+```
+
+The detailed `code` distinguishes causes for diagnostics or error grouping without including
+request URLs or organization names. The `rate-limit` code covers other rate-limit, request-quota,
+and abuse-detection messages.
+
 #### Options reference
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,

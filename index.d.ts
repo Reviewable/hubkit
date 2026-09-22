@@ -5,6 +5,7 @@ export default class Hubkit {
   static Stats: StatsClass;
   static readonly RETRY: unique symbol;
   static readonly DONT_RETRY: unique symbol;
+  static identify403Error(error: string | {message: string}): Identified403Error | undefined;
 
   constructor(options?: Options);
   defaultOptions: Options;
@@ -13,6 +14,23 @@ export default class Hubkit {
   interpolate(string: string, options?: Record<string, any>): string;
   scope(options: Options): Hubkit;
 }
+
+export type Identified403Error = ({
+  code: 'account-suspended' | 'email-unverified' | 'saml-enforcement' | 'admin-required' |
+    'two-factor-required';
+  category: 'badauth';
+} | {
+  code: 'oauth-app-restrictions';
+  category: 'thirdparty';
+} | {
+  code: 'access-blocked';
+  category: 'notfound';
+}) & {error: string; quota?: never} | {
+  code: 'secondary-rate-limit' | 'rate-limit';
+  quota: true;
+  category?: never;
+  error?: never;
+};
 
 interface Options {
   method?: string;

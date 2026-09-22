@@ -1,11 +1,12 @@
 {
   "name": "hubkit",
-  "version": "8.0.0",
+  "version": "8.1.0",
   "description": "GitHub API library for JavaScript, promise-based, for both NodeJS and the browser",
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
     "lint": "eslint *.js",
+    "test": "node --test",
     "update": "yarn up -R '*' && yarn dedupe --strategy highest",
     "latest": "yarn npm-check-updates -i -m --packageManager yarn --install never && yarn install",
     "upgrade": "reviewable-upgrade"
