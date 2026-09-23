@@ -190,7 +190,7 @@ content.  Valid values are:
 * `allPages`: Whether to automatically fetch all pages by following the `next` links and concatenate
 the results before returning them.  Defaults to true.  If set to false and a result has more pages,
 you'll find a `next()` function on the result that you can call to get a promise with the next page
-of items.  This also works for GraphQL queries, as long as your query has a `$after: String` parameter defined, and the results have a single top-level key with `pageInfo {hasNextPage, endCursor}` and `nodes` children.
+of items.  This also works for GraphQL queries, as long as your query has a `$after: String` parameter defined, and the results have a single top-level key with `pageInfo {hasNextPage, endCursor}` and either `nodes` or `edges` children.  Use `edges` when you need per-edge fields such as `permission`.
 * `boolean`: If true, interprets a 404 as false and a 20x as true.
 * `metadata`: The object on which to set metadata found in the response headers.  Defaults to `Hubkit`.
 * `ifNotFound`: A value to return instead of throwing an exception when the request results in a 404.
