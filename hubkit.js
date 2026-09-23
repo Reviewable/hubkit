@@ -738,12 +738,14 @@ if (typeof require !== 'undefined') {
     return {
       status: response.status,
       headers: response.headers,
-      data: parseResponseData(rawData, response.headers, options),
+      data: parseResponseData(rawData, response.headers, options, response.status),
       rawData
     };
   }
 
   function readResponseBody(response, options) {
+    // Error payloads describe the request failure, even when successful results are binary.
+    if (response.status >= 400) return response.text();
     switch (options.responseType) {
       case 'arraybuffer': return response.arrayBuffer();
       case 'blob': return response.blob();
@@ -751,11 +753,18 @@ if (typeof require !== 'undefined') {
     }
   }
 
-  function parseResponseData(rawData, headers, options) {
-    if (options.media === 'raw' || options.responseType) return rawData;
+  function parseResponseData(rawData, headers, options, status) {
+    if (status < 400 && (options.media === 'raw' || options.responseType)) return rawData;
     if (!rawData) return '';
     const contentType = headers.get('content-type') || '';
-    if (/^application\/(?:[^\s;]+\+)?json\s*(?:;|$)/i.test(contentType)) return JSON.parse(rawData);
+    if (/^application\/(?:[^\s;]+\+)?json\s*(?:;|$)/i.test(contentType)) {
+      try {
+        return JSON.parse(rawData);
+      } catch (error) {
+        // Keep the HTTP status and body if an error response contains invalid JSON.
+        if (status < 400) throw error;
+      }
+    }
     return rawData;
   }
 
