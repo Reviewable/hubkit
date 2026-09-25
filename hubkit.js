@@ -160,6 +160,12 @@ if (typeof require !== 'undefined') {
           error: 'Third-party app restrictions in effect'
         };
       }
+      if (/IP allow list enabled.*IP address is not permitted/i.test(message)) {
+        return {
+          code: 'ip-allow-list', category: 'iprestricted',
+          error: 'GitHub IP allow list blocks access'
+        };
+      }
       if (/access blocked/i.test(message)) {
         return {code: 'access-blocked', category: 'notfound', error: 'Repository access blocked'};
       }
