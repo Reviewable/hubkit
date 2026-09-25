@@ -23,6 +23,9 @@ export type Identified403Error = ({
   code: 'oauth-app-restrictions';
   category: 'thirdparty';
 } | {
+  code: 'ip-allow-list';
+  category: 'iprestricted';
+} | {
   code: 'access-blocked';
   category: 'notfound';
 }) & {error: string; quota?: never} | {

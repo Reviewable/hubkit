@@ -36,6 +36,12 @@ const cases = [
     error: 'Third-party app restrictions in effect'
   },
   {
+    message: 'Although you appear to have the correct authorization credentials, ' +
+      'the `example-org` organization has an IP allow list enabled, and your IP address is not ' +
+      'permitted to access this resource.',
+    code: 'ip-allow-list', category: 'iprestricted', error: 'GitHub IP allow list blocks access'
+  },
+  {
     message: 'Repository access blocked.',
     code: 'access-blocked', category: 'notfound', error: 'Repository access blocked'
   },
@@ -74,20 +80,24 @@ for (const [environment, implementation] of [['Node', Hubkit], ['browser', brows
         {...implementation.identify403Error(message)}, {code: 'rate-limit', quota: true});
     }
     for (const {message, ...expected} of cases.filter(value => [
-      'admin-required', 'two-factor-required', 'access-blocked'
+      'admin-required', 'two-factor-required', 'ip-allow-list', 'access-blocked'
     ].includes(value.code))) {
       assert.deepEqual({...implementation.identify403Error(message.toUpperCase())}, expected);
     }
   });
 
   test(`${environment}: preserves specific causes ahead of generic quota wording`, () => {
-    const {message, ...expected} = cases[0];
-    assert.deepEqual(
-      {...implementation.identify403Error(message + ' See rate limit documentation.')}, expected);
+    for (const {message, ...expected} of cases.filter(value => value.category)) {
+      assert.deepEqual(
+        {...implementation.identify403Error(message + ' See rate limit documentation.')}, expected);
+    }
   });
 
   test(`${environment}: leaves unknown causes unidentified`, () => {
-    for (const message of ['', 'Forbidden', 'Resource not accessible by integration']) {
+    for (const message of [
+      '', 'Forbidden', 'Resource not accessible by integration',
+      'Your organization has an IP allow list enabled.'
+    ]) {
       assert.equal(implementation.identify403Error(message), undefined);
       assert.equal(implementation.identify403Error(new Error(message)), undefined);
     }

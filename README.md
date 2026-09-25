@@ -138,6 +138,7 @@ no `category` or `error`, so callers can supply their own retry guidance.
 | `admin-required` | `badauth` | No admin rights | |
 | `two-factor-required` | `badauth` | Two-factor authentication not set up | |
 | `oauth-app-restrictions` | `thirdparty` | Third-party app restrictions in effect | |
+| `ip-allow-list` | `iprestricted` | GitHub IP allow list blocks access | |
 | `access-blocked` | `notfound` | Repository access blocked | |
 | `secondary-rate-limit` | | | `true` |
 | `rate-limit` | | | `true` |
