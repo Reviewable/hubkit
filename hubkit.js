@@ -382,9 +382,9 @@ if (typeof require !== 'undefined') {
                   if (keys.length !== 1) break;
                   rootKeys.push(keys[0]);
                   root = root[keys[0]];
-                  if (root && root.nodes) break;
+                  if (hasConnectionItems(root)) break;
                 }
-                const paginated = root && Array.isArray(root.nodes) &&
+                const paginated = hasConnectionItems(root) &&
                   /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
                 if (paginated && !(
                   root.pageInfo && 'endCursor' in root.pageInfo && 'hasNextPage' in root.pageInfo
@@ -400,16 +400,28 @@ if (typeof require !== 'undefined') {
                     resultRoot = resultRoot[key];
                   }
                 }
-                if (result && !(paginated && resultRoot && Array.isArray(resultRoot.nodes))) {
+                // Each array the incoming page carries must already be an array on the
+                // accumulator, otherwise the pages have different shapes and concatenating them
+                // would silently split the items across `nodes` and `edges`.
+                if (result && !(paginated && hasConnectionItems(resultRoot) &&
+                    (!Array.isArray(root.nodes) || Array.isArray(resultRoot.nodes)) &&
+                    (!Array.isArray(root.edges) || Array.isArray(resultRoot.edges)))) {
                   throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
                 }
                 if (paginated) {
                   const cursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
                   if (result) {
-                    resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
+                    if (Array.isArray(root.nodes)) {
+                      resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
+                    }
+                    if (Array.isArray(root.edges)) {
+                      resultRoot.edges = resultRoot.edges.concat(root.edges);
+                    }
                     for (const key in root) {
-                      if (!Object.hasOwnProperty.call(root, key) ||
-                          key === 'nodes' || key === 'pageInfo') {
+                      // Skip the arrays concatenated above, but copy over a field that merely
+                      // shares their name (e.g. the alias `nodes: totalCount`) like any other.
+                      if (!Object.hasOwnProperty.call(root, key) || key === 'pageInfo' ||
+                          ((key === 'nodes' || key === 'edges') && Array.isArray(root[key]))) {
                         continue;
                       }
                       resultRoot[key] = root[key];
@@ -638,6 +650,12 @@ if (typeof require !== 'undefined') {
 
   function detectApi(url) {
     return url.match(/^https?:\/\/[^/]+(?:\/api)?\/(search|graph(?=ql))/)?.[1] || 'core';
+  }
+
+  // A GraphQL connection holds its items in `nodes`, or in `edges` when the query selects
+  // per-edge fields such as `permission`.
+  function hasConnectionItems(value) {
+    return !!value && (Array.isArray(value.nodes) || Array.isArray(value.edges));
   }
 
   function defaults(o1, o2) {
