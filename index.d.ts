@@ -50,6 +50,7 @@ interface Options {
   immutable?: boolean;
   fresh?: boolean;
   stale?: boolean;
+  /** Successful response representation. HTTP errors (status >= 400) use JSON or text instead. */
   responseType?: 'text' | 'arraybuffer' | 'blob';
   maxTries?: number;
   timeout?: number;

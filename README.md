@@ -155,6 +155,22 @@ The detailed `code` distinguishes causes for diagnostics or error grouping witho
 request URLs or organization names. The `rate-limit` code covers other rate-limit, request-quota,
 and abuse-detection messages.
 
+#### HTTP error bodies (breaking change in 9.0.0)
+
+For HTTP status codes 400 and above, Hubkit reads the response body as text, regardless of
+`media` or `responseType`. In the error passed to `onError` or rejected by the request promise:
+
+* `error.response.rawData` is the body as text.
+* `error.response.data` is the parsed JSON value when the response Content-Type is
+  `application/json` or an `application/*+json` type. Otherwise it is the body as text.
+* Malformed JSON and empty bodies remain text, preserving the HTTP status and original text
+  instead of replacing the HTTP error with a JSON parsing error.
+
+Successful responses keep their requested representation. When upgrading from 8.x, update any
+error handlers that expect a Blob or ArrayBuffer in `error.response.data` or
+`error.response.rawData`; those fields now contain parsed JSON or text as described above.
+This also applies to handlers that recover from an HTTP error by returning a value from `onError`.
+
 #### Options reference
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
@@ -185,7 +201,7 @@ content.  Valid values are:
 * `body`: The contents of the request to send, typically a JSON-friendly object.
 * `variables`: For GraphQL queries, variables to pass to the server along with the query.
 * `autoQueryRateLimit`: For GraphQL queries, whether to inject a `rateLimit {cost, remaining}` property into every query.  This is used to figure out the cost information passed to `onReceive` (see below).
-* `responseType`: The response type if you want to receive raw data; one of `text`, `arraybuffer`, or `blob`.  Only useful when fetching file blobs.
+* `responseType`: The response type if you want to receive raw data; one of `text`, `arraybuffer`, or `blob`.  Only useful when fetching file blobs.  Applies to successful responses only; HTTP error responses ignore this option (see [HTTP error bodies](#http-error-bodies-breaking-change-in-900)).
 * `perPage`: The number of items to return per page of response.  Defaults to 100.
 * `allPages`: Whether to automatically fetch all pages by following the `next` links and concatenate
 the results before returning them.  Defaults to true.  If set to false and a result has more pages,
