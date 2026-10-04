@@ -288,6 +288,7 @@ if (typeof require !== 'undefined') {
               extractMetadata(path, cachedItem.headers, options.metadata, true);
               extractMetadata(path, res.headers, options.metadata);
               cachedItem.expiry = parseExpiry(res.headers);
+              // Starting the request replaced this entry with its in-flight promise.
               options.cache.set(cacheKey, cachedItem);
               if (options.stats) options.stats.record(true, cachedItem.size);
               resolve(attachFreshNext(cachedItem.value, this, options));
@@ -800,8 +801,7 @@ if (typeof require !== 'undefined') {
       const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
       const quota = {};
       for (const [suffix, header, multiplier] of [
-        ['', 'limit', 1], ['Remaining', 'remaining', 1], ['Used', 'used', 1],
-        ['ResetTimestamp', 'reset', 1000]
+        ['', 'limit', 1], ['Remaining', 'remaining', 1], ['ResetTimestamp', 'reset', 1000]
       ]) {
         const text = headers.get(`x-ratelimit-${header}`);
         const value = text?.trim() ? Number(text) : NaN;

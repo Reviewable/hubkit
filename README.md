@@ -118,7 +118,6 @@ Quota metadata is also updated on HTTP errors, before `onError` runs or the requ
 | --- | --- | --- | --- |
 | `rateLimit` | `searchRateLimit` | `graphRateLimit` | Maximum quota |
 | `rateLimitRemaining` | `searchRateLimitRemaining` | `graphRateLimitRemaining` | Remaining quota |
-| `rateLimitUsed` | `searchRateLimitUsed` | `graphRateLimitUsed` | Used quota |
 | `rateLimitResetTimestamp` | `searchRateLimitResetTimestamp` | `graphRateLimitResetTimestamp` | Reset time, in milliseconds since the Unix epoch |
 | `rateLimitTimestamp` | `searchRateLimitTimestamp` | `graphRateLimitTimestamp` | Observation time, in milliseconds since the Unix epoch |
 
