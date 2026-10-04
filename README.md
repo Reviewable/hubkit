@@ -3,7 +3,7 @@ hubkit
 
 [![Project Status: Active - The project has reached a stable, usable state and is being actively developed.](http://www.repostatus.org/badges/latest/active.svg)](http://www.repostatus.org/#active)
 
-A simple GitHub API library for JavaScript that works in both NodeJS and the browser.  Features:
+A simple GitHub API library for JavaScript that works in both NodeJS 22+ and the browser.  Features:
 * Takes a request-level approach that naturally covers the entire GitHub v3 API.
 * Supports the GraphQL v4 API.
 * All requests return promises.  (You may need to add a polyfill in the browser, depending on your target platforms.)
@@ -232,7 +232,10 @@ be rejected as usual (or the request retried in some special cases, like network
 
 Rate-limited `403` and `429` responses follow the same retry rules: `Retry-After` takes precedence;
 otherwise, exhausted quota (`x-ratelimit-remaining: 0`) with `x-ratelimit-reset` determines the
-delay. Automatic retries respect `maxTries` and require the delay to fit within `timeout` when
+delay. Both headers must contain nonnegative integer seconds (`x-ratelimit-reset` since the Unix
+epoch); HTTP-date `Retry-After` values are unsupported. Invalid values and delays exceeding the
+timer limit of 2,147,483,647 milliseconds do not trigger automatic retries or set `error.retryDelay`.
+Automatic retries respect `maxTries` and require the delay to fit within `timeout` when
 one is set. `error.retryDelay` contains the computed delay in milliseconds before `onError` runs,
 including when the handler suppresses retries, and remains available if the request rejects.
 * `maxTries`: The maximum number of times that a request will be tried (including the original call) if `onError` keeps returning `Hubkit.RETRY`.

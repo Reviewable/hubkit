@@ -231,21 +231,17 @@ if (typeof require !== 'undefined') {
           }
           const rateLimited = [403, 429].includes(res?.status);
           if (rateLimited) {
-            if (res.headers.get('retry-after')) {
-              try {
-                error.retryDelay =
-                  parseInt(res.headers.get('retry-after').replace(/[^\d]*$/, ''), 10) * 1000;
-              } catch {
-                // ignore, don't retry request
-              }
-            } else if (res.headers.get('x-ratelimit-remaining') === '0' &&
-                res.headers.get('x-ratelimit-reset')) {
-              try {
-                const reset = parseInt(res.headers.get('x-ratelimit-reset'), 10);
-                error.retryDelay = Math.max(0, reset * 1000 - Date.now());
-              } catch {
-                // ignore, don't retry request
-              }
+            const retryAfter = res.headers.get('retry-after');
+            const reset = res.headers.get('x-ratelimit-reset');
+            let delay;
+            if (retryAfter) {
+              if (/^\d+$/.test(retryAfter)) delay = Number(retryAfter) * 1000;
+            } else if (res.headers.get('x-ratelimit-remaining') === '0' && /^\d+$/.test(reset)) {
+              delay = Math.max(0, Number(reset) * 1000 - Date.now());
+            }
+            // Invalid and overflowing timer delays can otherwise trigger immediate retries.
+            if (Number.isSafeInteger(delay) && delay >= 0 && delay <= 2_147_483_647) {
+              error.retryDelay = delay;
             }
           }
           let value;
