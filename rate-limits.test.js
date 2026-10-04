@@ -27,6 +27,7 @@ function createHubkit(responses) {
       state.requests.push({url: String(url), options});
       assert.ok(response, 'unexpected network request');
       if (response instanceof Error) throw response;
+      if (response.wait) await response.wait;
       if (response.now !== undefined) state.now = response.now;
       const status = response.status ?? 200;
       return new globalThis.Response(status === 304 ? null : JSON.stringify(response.body ?? []), {
@@ -197,6 +198,26 @@ test('automatic pagination leaves the final page quota observation in metadata',
   assert.equal(metadata.rateLimitTimestamp, NOW + 1000);
 });
 
+test('a delayed 304 cannot overwrite a newer concurrent response in the cache', async () => {
+  const delayed = Promise.withResolvers();
+  const headers = {etag: 'old-etag', 'cache-control': 'max-age=600'};
+  const {Hubkit, state} = createHubkit([
+    {body: {version: 1}, headers},
+    {status: 304, headers, wait: delayed.promise},
+    {body: {version: 2}, headers: {...headers, etag: 'new-etag'}}
+  ]);
+  const gh = new Hubkit();
+  await gh.request('/repos/o/r');
+  const older = gh.request('/repos/o/r', {fresh: true});
+  assert.equal(state.requests.length, 2);
+  assert.equal(state.requests[1].options.headers['If-None-Match'], 'old-etag');
+  assert.equal((await gh.request('/repos/o/r', {fresh: true})).version, 2);
+  delayed.resolve();
+  assert.equal((await older).version, 1);
+  assert.equal((await gh.request('/repos/o/r')).version, 2);
+  assert.equal(state.requests.length, 3);
+});
+
 for (const status of [403, 429]) {
   for (const source of ['retry-after', 'quota-reset']) {
     const headers = {
@@ -204,6 +225,28 @@ for (const status of [403, 429]) {
       ...source === 'retry-after' && {'retry-after': '2'}
     };
     const delay = source === 'retry-after' ? 2000 : 4000;
+
+    test(`HTTP ${status} exposes ${source} delay before onError overrides`, async () => {
+      for (const override of ['reject', 'resolve']) {
+        const {Hubkit, state} = createHubkit([{status, headers}]);
+        let callbackDelay;
+        const request = new Hubkit().request('/repos/o/r', {onError: error => {
+          callbackDelay = error.retryDelay;
+          return override === 'reject' ? Hubkit.DONT_RETRY : 'fallback';
+        }});
+        if (override === 'reject') {
+          await assert.rejects(request, error => {
+            assert.equal(error.status, status);
+            assert.equal(error.retryDelay, delay);
+            return true;
+          });
+        } else {
+          assert.equal(await request, 'fallback');
+        }
+        assert.equal(callbackDelay, delay);
+        assert.equal(state.requests.length, 1);
+      }
+    });
 
     test(`HTTP ${status} retries after ${source} and updates metadata`, async t => {
       t.mock.timers.enable({apis: ['setTimeout']});

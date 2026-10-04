@@ -86,6 +86,8 @@ interface Options {
     logTag?: string,
     fingerprint?: string[],
     networkFailure?: boolean,
+    /** Computed rate-limit retry delay in milliseconds. */
+    retryDelay?: number,
   }):
     undefined | typeof Hubkit.RETRY | typeof Hubkit.DONT_RETRY | any;
 }

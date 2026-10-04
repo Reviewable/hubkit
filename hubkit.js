@@ -229,29 +229,33 @@ if (typeof require !== 'undefined') {
             options.cache.delete(cacheKey);
             if (options.stats) options.stats.record(false);
           }
+          const rateLimited = [403, 429].includes(res?.status);
+          if (rateLimited) {
+            if (res.headers.get('retry-after')) {
+              try {
+                error.retryDelay =
+                  parseInt(res.headers.get('retry-after').replace(/[^\d]*$/, ''), 10) * 1000;
+              } catch {
+                // ignore, don't retry request
+              }
+            } else if (res.headers.get('x-ratelimit-remaining') === '0' &&
+                res.headers.get('x-ratelimit-reset')) {
+              try {
+                const reset = parseInt(res.headers.get('x-ratelimit-reset'), 10);
+                error.retryDelay = Math.max(0, reset * 1000 - Date.now());
+              } catch {
+                // ignore, don't retry request
+              }
+            }
+          }
           let value;
           if (options.onError) value = options.onError(error);
           if (value === undefined) {
             if (error.networkFailure || [500, 502, 503, 504].includes(res?.status)) {
               value = Hubkit.RETRY;
-            } else if ([403, 429].includes(res?.status) && res.headers.get('retry-after')) {
-              try {
-                error.retryDelay =
-                  parseInt(res.headers.get('retry-after').replace(/[^\d]*$/, ''), 10) * 1000;
-                if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-              } catch {
-                // ignore, don't retry request
-              }
-            } else if ([403, 429].includes(res?.status) &&
-                res.headers.get('x-ratelimit-remaining') === '0' &&
-                res.headers.get('x-ratelimit-reset')) {
-              try {
-                const reset = parseInt(res.headers.get('x-ratelimit-reset'), 10);
-                error.retryDelay = Math.max(0, reset * 1000 - Date.now());
-                if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-              } catch {
-                // ignore, don't retry request
-              }
+            } else if (rateLimited && error.retryDelay !== undefined &&
+                (!options.timeout || error.retryDelay < options.timeout)) {
+              value = Hubkit.RETRY;
             }
           }
           if (value === Hubkit.RETRY && tries < options.maxTries) {
@@ -288,8 +292,10 @@ if (typeof require !== 'undefined') {
               extractMetadata(path, cachedItem.headers, options.metadata, true);
               extractMetadata(path, res.headers, options.metadata);
               cachedItem.expiry = parseExpiry(res.headers);
-              // Starting the request replaced this entry with its in-flight promise.
-              options.cache.set(cacheKey, cachedItem);
+              // Restore our in-flight entry without overwriting a newer concurrent request.
+              if (checkCache(options, cacheKey)?.promise === requestPromise) {
+                options.cache.set(cacheKey, cachedItem);
+              }
               if (options.stats) options.stats.record(true, cachedItem.size);
               resolve(attachFreshNext(cachedItem.value, this, options));
             } else if (

@@ -233,7 +233,8 @@ be rejected as usual (or the request retried in some special cases, like network
 Rate-limited `403` and `429` responses follow the same retry rules: `Retry-After` takes precedence;
 otherwise, exhausted quota (`x-ratelimit-remaining: 0`) with `x-ratelimit-reset` determines the
 delay. Automatic retries respect `maxTries` and require the delay to fit within `timeout` when
-one is set. If the request rejects, `error.retryDelay` contains the computed delay in milliseconds.
+one is set. `error.retryDelay` contains the computed delay in milliseconds before `onError` runs,
+including when the handler suppresses retries, and remains available if the request rejects.
 * `maxTries`: The maximum number of times that a request will be tried (including the original call) if `onError` keeps returning `Hubkit.RETRY`.
 * `onSend`: A function to be called before every individual request gets sent to GitHub.  The sole argument will be a string indicating the reason for the request: `initial` for the initial request, `page` for an automatic next page request (if the `allPages` option is on), and `retry` for an explicit or automatic retry.  The function can return a duration in milliseconds that will override the timeout provided in the options (if any).  The function can also return a promise for the above, in which case the request will be held until the promise is resolved.
 * `onReceive`. A function to be called after a reponse (or error) is received from GitHub.  If a response was received then the function will be passed an object with properties `api` (indicating the API used, and hence the quota pool) and `cost` (how much quota was used by this request).  The function's return value, if any, is discarded.
