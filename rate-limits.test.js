@@ -220,6 +220,41 @@ test('a delayed 304 cannot overwrite a newer concurrent response in the cache', 
 
 for (const status of [403, 429]) {
   for (const source of ['retry-after', 'quota-reset']) {
+    test(`HTTP ${status} rejects invalid ${source} delay headers without retrying`, async t => {
+      t.mock.timers.enable({apis: ['setTimeout']});
+      const header = source === 'retry-after' ? 'retry-after' : 'x-ratelimit-reset';
+      const tooLong = source === 'retry-after' ? 2_147_484 : NOW / 1000 + 2_147_484;
+      for (const value of [
+        'invalid', new Date(NOW + 2000).toUTCString(), '-1', '1.5', '2seconds',
+        'NaN', 'Infinity', '9'.repeat(400), String(tooLong), '9007199254740992', '0x10', '1e2'
+      ]) {
+        const {Hubkit, state} = createHubkit([
+          {status, headers: {...quotaHeaders('core', 0), [header]: value}}, {}
+        ]);
+        const failed = Promise.withResolvers();
+        const request = new Hubkit().request('/repos/o/r', {
+          onError: error => {failed.resolve(error);}
+        });
+        const rejected = assert.rejects(request, error => error.status === status, value);
+        const error = await failed.promise;
+        t.mock.timers.runAll();
+        await rejected;
+        assert.equal(error.retryDelay, undefined, value);
+        assert.equal(state.requests.length, 1, value);
+      }
+    });
+
+    test(`HTTP ${status} accepts a zero ${source} delay`, async () => {
+      const headers = source === 'retry-after' ? {'retry-after': '0'} : {
+        'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(NOW / 1000 - 1)
+      };
+      const {Hubkit, state} = createHubkit([{status, headers}, {}]);
+      let delay;
+      await new Hubkit().request('/repos/o/r', {onError: error => {delay = error.retryDelay;}});
+      assert.equal(delay, 0);
+      assert.equal(state.requests.length, 2);
+    });
+
     const headers = {
       ...quotaHeaders('core', 0), 'x-ratelimit-reset': String(NOW / 1000 + 4),
       ...source === 'retry-after' && {'retry-after': '2'}

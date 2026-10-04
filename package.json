@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/pkaminski/hubkit",
   "engines": {
-    "node": ">=18.0"
+    "node": ">=22.0"
   },
   "packageManager": "yarn@4.13.0",
   "dependencies": {
