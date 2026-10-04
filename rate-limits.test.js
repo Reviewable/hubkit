@@ -51,7 +51,7 @@ for (const [resource, prefix, path] of [
       }]);
       const metadata = {};
       const expected = {
-        [prefix]: 5000, [`${prefix}Remaining`]: 4500, [`${prefix}Used`]: 500,
+        [prefix]: 5000, [`${prefix}Remaining`]: 4500,
         [`${prefix}ResetTimestamp`]: NOW + 3_600_000, [`${prefix}Timestamp`]: NOW,
         contentType: 'application/json'
       };
@@ -103,7 +103,7 @@ test('invalid headers and transport errors do not refresh observations', async (
     {now: NOW + 1000},
     {headers: {
       'x-ratelimit-limit': 'Infinity', 'x-ratelimit-remaining': '-1',
-      'x-ratelimit-used': '', 'x-ratelimit-reset': '123invalid'
+      'x-ratelimit-reset': '123invalid'
     }, now: NOW + 2000},
     new Error('connection reset')
   ]);
@@ -130,7 +130,6 @@ test('a partial new observation does not inherit fields from an older quota wind
   await gh.request('/repos/o/r');
   assert.equal(metadata.rateLimitRemaining, 0);
   assert.equal(metadata.rateLimit, undefined);
-  assert.equal(metadata.rateLimitUsed, undefined);
   assert.equal(metadata.rateLimitResetTimestamp, undefined);
   assert.equal(metadata.rateLimitTimestamp, NOW + 1000);
 });

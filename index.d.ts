@@ -104,19 +104,16 @@ interface Stats {
 export interface Metadata {
   rateLimit?: number;
   rateLimitRemaining?: number;
-  rateLimitUsed?: number;
   /** Quota reset time in milliseconds since the Unix epoch. */
   rateLimitResetTimestamp?: number;
   /** Time the quota headers were observed, in milliseconds since the Unix epoch. */
   rateLimitTimestamp?: number;
   searchRateLimit?: number;
   searchRateLimitRemaining?: number;
-  searchRateLimitUsed?: number;
   searchRateLimitResetTimestamp?: number;
   searchRateLimitTimestamp?: number;
   graphRateLimit?: number;
   graphRateLimitRemaining?: number;
-  graphRateLimitUsed?: number;
   graphRateLimitResetTimestamp?: number;
   graphRateLimitTimestamp?: number;
   oAuthScopes?: string[];
