@@ -244,6 +244,21 @@ test('a delayed 304 cannot overwrite a newer concurrent response in the cache', 
 });
 
 for (const status of [403, 429]) {
+  test(`HTTP ${status} recognizes only decimal zero as exhausted remaining quota`, async () => {
+    for (const remaining of ['00', ' \t000 ', '', ' ', '+0', '-0', '0e0', '0x0', '0.0', '0001']) {
+      const {Hubkit, state} = createHubkit([{status, headers: {
+        'x-ratelimit-remaining': remaining, 'x-ratelimit-reset': String(NOW / 1000 + 4)
+      }}]);
+      await assert.rejects(new Hubkit({maxTries: 1}).request('/repos/o/r'), error => {
+        assert.equal(error.status, status);
+        assert.equal(error.retryDelay, ['00', ' \t000 '].includes(remaining) ? 4000 : undefined,
+          remaining);
+        return true;
+      });
+      assert.equal(state.requests.length, 1);
+    }
+  });
+
   for (const source of ['retry-after', 'quota-reset']) {
     test(`HTTP ${status} rejects invalid ${source} delay headers without retrying`, async t => {
       t.mock.timers.enable({apis: ['setTimeout']});
@@ -311,7 +326,8 @@ for (const status of [403, 429]) {
     test(`HTTP ${status} retries after ${source} and updates metadata`, async t => {
       t.mock.timers.enable({apis: ['setTimeout']});
       const {Hubkit, state} = createHubkit([
-        {status, headers, body: {message: 'API rate limit exceeded'}},
+        {status, headers: {...headers, 'x-ratelimit-remaining': '00'},
+          body: {message: 'API rate limit exceeded'}},
         {headers: quotaHeaders('core', 4999), now: NOW + delay}
       ]);
       const metadata = {};

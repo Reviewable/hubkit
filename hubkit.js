@@ -236,7 +236,8 @@ if (typeof require !== 'undefined') {
             let delay;
             if (retryAfter) {
               if (/^\d+$/.test(retryAfter)) delay = Number(retryAfter) * 1000;
-            } else if (res.headers.get('x-ratelimit-remaining') === '0' && /^\d+$/.test(reset)) {
+            } else if (/^0+$/.test(res.headers.get('x-ratelimit-remaining')?.trim()) &&
+                /^\d+$/.test(reset)) {
               delay = Math.max(0, Number(reset) * 1000 - Date.now());
             }
             // Invalid and overflowing timer delays can otherwise trigger immediate retries.
