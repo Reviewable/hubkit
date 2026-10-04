@@ -65,6 +65,31 @@ for (const [resource, prefix, path] of [
       assert.deepEqual(metadata, expected);
     });
   }
+
+  test(`${resource} quota headers require decimal digits`, async () => {
+    for (const value of ['0x10', '0b10', '0o10', '1e2', '1.0', '+1']) {
+      const headers = {
+        'x-ratelimit-resource': resource, 'x-ratelimit-limit': value,
+        'x-ratelimit-remaining': value, 'x-ratelimit-reset': value
+      };
+      const {Hubkit} = createHubkit([
+        {headers: quotaHeaders(resource)},
+        {headers, now: NOW + 1000},
+        {headers: {...headers, 'x-ratelimit-remaining': ' \t0012 '}, now: NOW + 2000}
+      ]);
+      const metadata = {};
+      const gh = new Hubkit({metadata, cache: null});
+      await gh.request(path);
+      const previous = {...metadata};
+      await gh.request(path);
+      assert.deepEqual(metadata, previous, value);
+      await gh.request(path);
+      assert.equal(metadata[prefix], undefined, value);
+      assert.equal(metadata[`${prefix}Remaining`], 12, value);
+      assert.equal(metadata[`${prefix}ResetTimestamp`], undefined, value);
+      assert.equal(metadata[`${prefix}Timestamp`], NOW + 2000, value);
+    }
+  });
 }
 
 test('resource headers select the bucket, falling back to the URL only when absent', async () => {

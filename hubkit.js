@@ -805,8 +805,8 @@ if (typeof require !== 'undefined') {
       for (const [suffix, header, multiplier] of [
         ['', 'limit', 1], ['Remaining', 'remaining', 1], ['ResetTimestamp', 'reset', 1000]
       ]) {
-        const text = headers.get(`x-ratelimit-${header}`);
-        const value = text?.trim() ? Number(text) : NaN;
+        const text = headers.get(`x-ratelimit-${header}`)?.trim();
+        const value = /^\d+$/.test(text) ? Number(text) : NaN;
         quota[rateName + suffix] = Number.isSafeInteger(value) && value >= 0 &&
           Number.isSafeInteger(value * multiplier) ? value * multiplier : undefined;
       }
