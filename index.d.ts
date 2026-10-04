@@ -7,6 +7,22 @@ export default class Hubkit {
   static readonly DONT_RETRY: unique symbol;
   static identify403Error(error: string | {message: string}): Identified403Error | undefined;
 
+  // Default metadata destination; see Metadata for field details.
+  static rateLimit?: number;
+  static rateLimitRemaining?: number;
+  static rateLimitResetTimestamp?: number;
+  static rateLimitTimestamp?: number;
+  static searchRateLimit?: number;
+  static searchRateLimitRemaining?: number;
+  static searchRateLimitResetTimestamp?: number;
+  static searchRateLimitTimestamp?: number;
+  static graphRateLimit?: number;
+  static graphRateLimitRemaining?: number;
+  static graphRateLimitResetTimestamp?: number;
+  static graphRateLimitTimestamp?: number;
+  static oAuthScopes?: string[];
+  static contentType?: string;
+
   constructor(options?: Options);
   defaultOptions: Options;
   request(path: string, options?: Options): Promise<any>;
