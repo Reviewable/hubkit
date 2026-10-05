@@ -40,8 +40,9 @@ interface Options {
   host?: string;
   graphHost?: string;
   pathPattern?: string;
-  /** GraphQL body.idempotent overrides automatic retry inference; it is not sent to GitHub. */
   body?: any;
+  /** Override automatic retry inference for REST or GraphQL; onError takes precedence. */
+  idempotent?: boolean;
   media?: string;
   ifNotFound?: any;
   ifGone?: any;
