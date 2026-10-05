@@ -232,9 +232,10 @@ if (typeof require !== 'undefined') {
           let value;
           if (options.onError) value = options.onError(error);
           if (value === undefined) {
-            if (error.networkFailure || [500, 502, 503, 504].includes(res?.status)) {
+            const status = error.status ?? res?.status;
+            if (error.networkFailure || [500, 502, 503, 504].includes(status)) {
               value = Hubkit.RETRY;
-            } else if (res?.status === 403 && res.headers.get('retry-after')) {
+            } else if (status === 403 && res?.headers.get('retry-after')) {
               try {
                 error.retryDelay =
                   parseInt(res.headers.get('retry-after').replace(/[^\d]*$/, ''), 10) * 1000;
@@ -242,8 +243,8 @@ if (typeof require !== 'undefined') {
               } catch {
                 // ignore, don't retry request
               }
-            } else if (res?.status === 403 &&
-                res.headers.get('x-ratelimit-remaining') === '0' &&
+            } else if (status === 403 &&
+                res?.headers.get('x-ratelimit-remaining') === '0' &&
                 res.headers.get('x-ratelimit-reset')) {
               try {
                 const reset = parseInt(res.headers.get('x-ratelimit-reset'), 10);

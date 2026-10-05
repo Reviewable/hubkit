@@ -213,7 +213,9 @@ of items.  This also works for GraphQL queries, as long as your query has a `$af
 * `ifGone`: A value to return instead of throwing an exception when the request results in a 410.
 * `onError`: A function to be called when an error occurs, either in the request itself or an
 unexpected 4xx or 5xx response.  If it's an error response, the error object will have `status`,
-`method`, `path`, and `response` attributes.  If the function returns `undefined`, the promise will
+`method`, `path`, and `response` attributes.  GraphQL errors returned with HTTP 200 have a
+synthesized `error.status`, which also controls automatic retries; `error.response.status` retains
+the original HTTP status.  If the function returns `undefined`, the promise will
 be rejected as usual (or the request retried in some special cases, like network failures and abuse quota 403s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
 * `maxTries`: The maximum number of times that a request will be tried (including the original call) if `onError` keeps returning `Hubkit.RETRY`.
 * `onSend`: A function to be called before every individual request gets sent to GitHub.  The sole argument will be a string indicating the reason for the request: `initial` for the initial request, `page` for an automatic next page request (if the `allPages` option is on), and `retry` for an explicit or automatic retry.  The function can return a duration in milliseconds that will override the timeout provided in the options (if any).  The function can also return a promise for the above, in which case the request will be held until the promise is resolved.
