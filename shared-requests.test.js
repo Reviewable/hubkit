@@ -38,6 +38,8 @@ for (const environment of ['Node', 'browser']) {
       const values = await Promise.all(callbacks.map(options =>
         hubkit.request('/shared', options)));
       assert.equal(fetch.mock.callCount(), 1);
+      assert.equal(hubkit.defaultOptions.stats.hitRate, 0.5);
+      assert.equal(hubkit.defaultOptions.stats.hitSizeRate, 0.5);
       for (const [i, options] of callbacks.entries()) {
         assert.equal(options.onRequest.mock.callCount(), 1);
         assert.equal(options.onSend.mock.calls[0].arguments[0], 'initial');
@@ -85,7 +87,7 @@ for (const environment of ['Node', 'browser']) {
         assert.equal(second.reason.name, outcome === 'zero' ? 'TimeoutError' : 'Error');
         assert.equal(onReceive.mock.callCount(), 0);
       }
-      assert.equal(onError.mock.callCount(), 0);
+      assert.equal(onError.mock.callCount(), outcome === 'zero' ? 1 : 0);
     });
   }
 
@@ -160,15 +162,35 @@ for (const environment of ['Node', 'browser']) {
       assert.equal(hubkit.defaultOptions.cache.size, 0);
     });
 
-  test(`${environment}: ifNotFound is evaluated for each caller`, async t => {
-    const fetch = t.mock.fn(async () => json({message: 'Not Found'}, 404));
+  for (const [status, option] of [[404, 'ifNotFound'], [410, 'ifGone']]) {
+    test(`${environment}: ${option} and cache stats are evaluated for each caller`, async t => {
+      const fetch = t.mock.fn(async () => json({message: 'Missing'}, status));
+      const hubkit = createHubkit(environment, fetch);
+      const results = await Promise.allSettled([
+        hubkit.request('/missing'), hubkit.request('/missing', {[option]: null})
+      ]);
+      assert.equal(results[0].reason.status, status);
+      assert.equal(results[1].value, null);
+      assert.equal(fetch.mock.callCount(), 1);
+      assert.equal(hubkit.defaultOptions.stats.hitRate, 0.5);
+    });
+  }
+
+  test(`${environment}: shared ArrayBuffer responses reuse the original buffer`, async t => {
+    const buffer = new Uint8Array([1, 2, 3]).buffer;
+    const arrayBuffer = t.mock.fn(async () => buffer);
+    const fetch = t.mock.fn(async () => ({
+      status: 200, headers: new globalThis.Headers(), arrayBuffer
+    }));
     const hubkit = createHubkit(environment, fetch);
-    const results = await Promise.allSettled([
-      hubkit.request('/missing', {ifNotFound: null}), hubkit.request('/missing')
+    const values = await Promise.all([
+      hubkit.request('/buffer', {responseType: 'arraybuffer'}),
+      hubkit.request('/buffer', {responseType: 'arraybuffer'})
     ]);
-    assert.equal(results[0].value, null);
-    assert.equal(results[1].reason.status, 404);
     assert.equal(fetch.mock.callCount(), 1);
+    assert.equal(arrayBuffer.mock.callCount(), 1);
+    assert.equal(values[0], buffer);
+    assert.equal(values[1], buffer);
   });
 
   test(`${environment}: a throwing error handler rejects only its caller once`, async t => {
@@ -255,6 +277,29 @@ for (const environment of ['Node', 'browser']) {
         assert.equal(fetch.mock.callCount(), 2);
       });
   }
+
+  test(`${environment}: callers on different automatic pages cannot share the wrong page`,
+    async t => {
+      let releaseCallback, releasePage;
+      const callback = new Promise(resolve => {releaseCallback = resolve;});
+      const page = new Promise(resolve => {releasePage = resolve;});
+      const fetch = t.mock.fn(async url => url.searchParams.has('page') ? page :
+        json([1], 200, {link: '<https://api.github.com/pages?page=2>; rel="next"'}));
+      const hubkit = createHubkit(environment, fetch);
+      const first = hubkit.request('/pages', {allPages: true});
+      const second = hubkit.request('/pages', {
+        allPages: true, onSend: cause => cause === 'initial' ? callback : undefined
+      });
+      await new Promise(setImmediate);
+      assert.equal(fetch.mock.callCount(), 2);
+      releaseCallback();
+      await new Promise(setImmediate);
+      assert.equal(fetch.mock.callCount(), 3);
+      releasePage(json([2]));
+      for (const value of await Promise.all([first, second])) {
+        assert.deepEqual(Array.from(value), [1, 2]);
+      }
+    });
 
   test(`${environment}: shared conditional requests retain the pinned 304 response`, async t => {
     let sends = 0;

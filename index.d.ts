@@ -52,10 +52,11 @@ interface Options {
   immutable?: boolean;
   fresh?: boolean;
   stale?: boolean;
-  /** Successful response representation. HTTP errors (status >= 400) use JSON or text instead. */
+  /** Successful response representation. Treat shared buffers as read-only; copy before mutation
+   * or transfer. HTTP errors (status >= 400) use JSON or text instead. */
   responseType?: 'text' | 'arraybuffer' | 'blob';
   maxTries?: number;
-  timeout?: number;  // zero rejects immediately without sending the request
+  timeout?: number;  // zero invokes onError immediately without sending the request
   maxItemSizeRatio?: number;
   metadata?: Metadata;
   stats?: Stats;
@@ -75,7 +76,7 @@ interface Options {
   [key: string]: any;
 
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
-  // Returns a timeout; zero rejects immediately, nullish results retain the options timeout.
+  // Returns a timeout; zero invokes onError immediately, nullish results retain the options timeout.
   onSend?(cause: 'initial' | 'retry' | 'page'): OnSendResult | Promise<OnSendResult>;
   onReceive?(call?: {api: 'core' | 'graph' | 'search', cost: number | undefined}, shared?: boolean): void;
   onError?(error: Error & {

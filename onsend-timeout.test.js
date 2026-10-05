@@ -19,6 +19,41 @@ function createHubkit(environment, fetch, timers = {setTimeout, clearTimeout}) {
 }
 
 for (const environment of ['Node', 'browser']) {
+  for (const policy of ['recover', 'retry', 'exhaust', 'throw']) {
+    test(`${environment}: zero timeouts honor the ${policy} error policy`, async t => {
+      const fetch = t.mock.fn(async () => new globalThis.Response('{"ok":true}', {
+        headers: {'content-type': 'application/json'}
+      }));
+      const hubkit = createHubkit(environment, fetch);
+      const onSend = t.mock.fn(cause => policy === 'retry' && cause === 'retry' ? 1000 : undefined);
+      const onReceive = t.mock.fn();
+      const onError = t.mock.fn(error => {
+        assert.equal(error.name, 'TimeoutError');
+        assert.equal(error.networkFailure, undefined);
+        if (policy === 'throw') throw new Error('Handler failed');
+        return policy === 'recover' ? 'recovered' : hubkit.constructor.RETRY;
+      });
+      const request = hubkit.request('/zero-policy', {
+        timeout: 0, maxTries: 2, onSend, onReceive, onError
+      });
+      if (policy === 'recover') {
+        assert.equal(await request, 'recovered');
+      } else if (policy === 'retry') {
+        assert.equal((await request).ok, true);
+      } else {
+        await assert.rejects(request, policy === 'throw' ?
+          {message: 'Handler failed'} : {name: 'TimeoutError'});
+      }
+      const retries = policy === 'retry' || policy === 'exhaust';
+      assert.deepEqual(onSend.mock.calls.map(call => call.arguments[0]),
+        retries ? ['initial', 'retry'] : ['initial']);
+      assert.equal(onError.mock.callCount(), policy === 'exhaust' ? 2 : 1);
+      assert.equal(fetch.mock.callCount(), policy === 'retry' ? 1 : 0);
+      assert.equal(onReceive.mock.callCount(), policy === 'retry' ? 1 : 0);
+      assert.equal(hubkit.defaultOptions.cache.size, 0);
+    });
+  }
+
   for (const timeout of [0, 10]) {
     for (const useDefault of [false, true]) {
       const source = useDefault ? 'default' : 'explicit';
@@ -58,7 +93,7 @@ for (const environment of ['Node', 'browser']) {
           assert.equal(fetch.mock.callCount(), 1);
           assert.equal(onSend.mock.callCount(), 1);
           assert.equal(onReceive.mock.callCount(), timeout ? 1 : 0);
-          assert.equal(onError.mock.callCount(), timeout ? 1 : 0);
+          assert.equal(onError.mock.callCount(), 1);
 
           const later = hubkit.request('/shared', {timeout: 100});
           releaseResponse(new globalThis.Response('{"ok":true}', {headers: {
@@ -177,13 +212,14 @@ for (const environment of ['Node', 'browser']) {
         async t => {
           const fetch = t.mock.fn(async () => new globalThis.Response('{}'));
           const hubkit = createHubkit(environment, fetch);
-          const onError = t.mock.fn(() => {throw new Error('Must not retry a pre-send timeout');});
+          const onError = t.mock.fn();
           const onReceive = t.mock.fn();
           await assert.rejects(hubkit.request('/zero', {timeout, onSend, onError, onReceive}), {
             name: 'TimeoutError'
           });
           assert.equal(fetch.mock.callCount(), 0);
-          assert.equal(onError.mock.callCount(), 0);
+          assert.equal(onError.mock.callCount(), 1);
+          assert.equal(onError.mock.calls[0].arguments[0].networkFailure, undefined);
           assert.equal(onReceive.mock.callCount(), 0);
         });
     }
@@ -252,7 +288,7 @@ for (const environment of ['Node', 'browser']) {
         timeout: 0, onSend, onError, onReceive
       }), {name: 'TimeoutError'});
       assert.equal(fetch.mock.callCount(), 0);
-      assert.equal(onError.mock.callCount(), 0);
+      assert.equal(onError.mock.callCount(), 1);
       assert.equal(onReceive.mock.callCount(), 0);
     });
   }
