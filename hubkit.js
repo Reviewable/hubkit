@@ -211,8 +211,22 @@ if (typeof require !== 'undefined') {
               options.stats.record(true, cachedItem.size);
             }
           }
-          return cachedItem.promise ?
-            cachedItem.promise.then(value => attachFreshNext(value, this, options)) :
+          let promise = cachedItem.promise;
+          if (promise && options.timeout === 0) {
+            throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+          }
+          if (promise && options.timeout) {
+            // Bound this caller's wait without aborting or evicting the shared request.
+            let timeoutId;
+            const timeout = new Promise((resolve, reject) => {
+              timeoutId = setTimeout(() => reject(
+                new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+              options.timeout);
+            });
+            promise = Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+          }
+          return promise ?
+            promise.then(value => attachFreshNext(value, this, options)) :
             Promise.resolve(attachFreshNext(cachedItem.value, this, options));
         }
       }
