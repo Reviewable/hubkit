@@ -546,7 +546,11 @@ if (typeof require !== 'undefined') {
         async function send(body, cause) {
           tries++;
           try {
-            const timeout = options.onSend && await options.onSend(cause) || options.timeout;
+            let timeout = await options.onSend?.(cause);
+            if (timeout === 0) {
+              throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+            }
+            timeout ??= options.timeout;
             let rawData;
             const config = {
               url: path,
