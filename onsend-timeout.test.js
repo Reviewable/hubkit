@@ -14,10 +14,65 @@ function createHubkit(environment, fetch) {
   if (environment === 'Node') Object.assign(context, {process, module: {exports: {}}});
   vm.runInNewContext(readFileSync(require.resolve('./hubkit.js'), 'utf8'), context);
   const Hubkit = environment === 'Node' ? context.module.exports : context.self.Hubkit;
-  return new Hubkit({cache: false, autoQueryRateLimit: false});
+  return new Hubkit({autoQueryRateLimit: false});
 }
 
 for (const environment of ['Node', 'browser']) {
+  for (const [description, options, expected] of [
+    ['zero option', {timeout: 0}, {name: 'TimeoutError'}],
+    ['zero callback', {onSend: () => 0}, {name: 'TimeoutError'}],
+    ['async zero callback', {onSend: async () => 0}, {name: 'TimeoutError'}],
+    ['throwing callback', {onSend() {throw new Error('Callback failed');}},
+      {message: 'Callback failed'}]
+  ]) {
+    test(`${environment}: cached requests recover after ${description}`, async t => {
+      const fetch = t.mock.fn(async () => new globalThis.Response('{"ok":true}', {headers: {
+        'content-type': 'application/json', 'cache-control': 'max-age=60'
+      }}));
+      const hubkit = createHubkit(environment, fetch);
+      await assert.rejects(hubkit.request('/recover', options), expected);
+      assert.equal(fetch.mock.callCount(), 0);
+      assert.equal(hubkit.defaultOptions.cache.size, 0);
+
+      assert.equal((await hubkit.request('/recover', {timeout: 1000})).ok, true);
+      assert.equal((await hubkit.request('/recover')).ok, true);
+      assert.equal(fetch.mock.callCount(), 1);
+    });
+  }
+
+  for (const completed of [false, true]) {
+    const state = completed ? 'response' : 'promise';
+    test(`${environment}: a pre-send rejection preserves a newer ${state}`,
+      async t => {
+        let releaseTimeout, releaseResponse;
+        const timeout = new Promise(resolve => {releaseTimeout = resolve;});
+        const response = new Promise(resolve => {releaseResponse = resolve;});
+        const fetch = t.mock.fn(() => response);
+        const hubkit = createHubkit(environment, fetch);
+        const rejected = assert.rejects(hubkit.request('/concurrent', {
+          onSend: () => timeout
+        }), {name: 'TimeoutError'});
+        const newer = hubkit.request('/concurrent', {fresh: true});
+        const result = new globalThis.Response('{"ok":true}', {headers: {
+          'content-type': 'application/json', 'cache-control': 'max-age=60'
+        }});
+        if (completed) {
+          releaseResponse(result);
+          await newer;
+        }
+        const cache = hubkit.defaultOptions.cache;
+        const [key] = cache.keys();
+        const replacement = cache.get(key);
+        releaseTimeout(0);
+        await rejected;
+        assert.equal(cache.get(key), replacement);
+        if (!completed) releaseResponse(result);
+        await newer;
+        assert.equal((await hubkit.request('/concurrent')).ok, true);
+        assert.equal(fetch.mock.callCount(), 1);
+      });
+  }
+
   for (const onSend of [() => 0, async () => 0]) {
     for (const timeout of [undefined, 1000]) {
       test(`${environment}: ${onSend.constructor.name} zero stops sends with timeout ${timeout}`,
