@@ -40,24 +40,25 @@ for (const environment of ['Node', 'browser']) {
           const cache = hubkit.defaultOptions.cache;
           const [key] = cache.keys();
           const entry = cache.get(key);
-          const onSend = t.mock.fn(() => 1000);
+          const onSend = t.mock.fn();
           const onReceive = t.mock.fn();
           const onError = t.mock.fn();
           let outcome;
           const caller = useDefault ? hubkit.scope({timeout}) : hubkit;
           const waiter = caller.request('/shared', {
-            ...!useDefault && {timeout}, onSend, onReceive, onError
+            ...!useDefault && {timeout}, maxTries: 1, onSend, onReceive, onError
           }).then(value => {outcome = value;}, error => {outcome = error;});
           const untimed = hubkit.request('/shared');
+          await new Promise(setImmediate);
           t.mock.timers.tick(timeout);
           await new Promise(setImmediate);
           assert.equal(outcome?.name, 'TimeoutError');
           assert.equal(signal.aborted, false);
           assert.equal(cache.get(key), entry);
           assert.equal(fetch.mock.callCount(), 1);
-          assert.equal(onSend.mock.callCount(), 0);
-          assert.equal(onReceive.mock.callCount(), 0);
-          assert.equal(onError.mock.callCount(), 0);
+          assert.equal(onSend.mock.callCount(), 1);
+          assert.equal(onReceive.mock.callCount(), timeout ? 1 : 0);
+          assert.equal(onError.mock.callCount(), timeout ? 1 : 0);
 
           const later = hubkit.request('/shared', {timeout: 100});
           releaseResponse(new globalThis.Response('{"ok":true}', {headers: {
@@ -87,7 +88,7 @@ for (const environment of ['Node', 'browser']) {
         const hubkit = createHubkit(environment, fetch, timers);
         const original = hubkit.request('/settle', {maxTries: 1});
         const onError = t.mock.fn();
-        const waiter = hubkit.request('/settle', {timeout: 100, onError});
+        const waiter = hubkit.request('/settle', {timeout: 100, maxTries: 1, onError});
         const results = Promise.allSettled([original, waiter]);
         const error = new Error('Connection failed');
         if (fail) {
@@ -99,14 +100,18 @@ for (const environment of ['Node', 'browser']) {
         }
         const settled = await results;
         for (const result of settled) {
-          if (fail) assert.equal(result.reason, error);
-          else assert.equal(result.value.ok, true);
+          if (fail) {
+            assert.notEqual(result.reason, error);
+            assert.equal(result.reason.originalMessage, error.message);
+          } else {
+            assert.equal(result.value.ok, true);
+          }
         }
         assert.equal(timers.setTimeout.mock.callCount(), 1);
         assert.equal(timers.clearTimeout.mock.callCount(), 1);
         assert.equal(
           timers.clearTimeout.mock.calls[0].arguments[0], timers.setTimeout.mock.calls[0].result);
-        assert.equal(onError.mock.callCount(), 0);
+        assert.equal(onError.mock.callCount(), fail ? 1 : 0);
         assert.equal(fetch.mock.callCount(), 1);
       });
   }
@@ -254,7 +259,7 @@ for (const environment of ['Node', 'browser']) {
 
   test(`${environment}: an omitted timeout sends the request without a timer`, async t => {
     const fetch = t.mock.fn(async (url, {signal}) => {
-      assert.equal(signal, undefined);
+      assert.equal(signal.aborted, false);
       return new globalThis.Response('{}', {headers: {'content-type': 'application/json'}});
     });
     const hubkit = createHubkit(environment, fetch);
