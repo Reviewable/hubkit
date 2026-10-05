@@ -68,7 +68,7 @@ interface Options {
   stats?: Stats;
   cache?: LRUCache<
     string,
-    {promise: Promise<any>, size: number} |
+    {pending: number, size: number} |
     {value: any, eTag?: string, status: number, headers: any, size: number, expiry?: number}
   > | null;
   userAgent?: string;
@@ -84,7 +84,7 @@ interface Options {
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
   // Returns a timeout; zero rejects immediately, nullish results retain the options timeout.
   onSend?(cause: 'initial' | 'retry' | 'page'): OnSendResult | Promise<OnSendResult>;
-  onReceive?(call?: {api: 'core' | 'graph' | 'search', cost: number | undefined}): void;
+  onReceive?(call?: {api: 'core' | 'graph' | 'search', cost: number | undefined}, shared?: boolean): void;
   onError?(error: Error & {
     status?: number,
     data?: any,

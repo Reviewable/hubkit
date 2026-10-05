@@ -11,6 +11,8 @@ if (typeof require !== 'undefined') {
 
   // Carries a paginated response's pager factory so `next` can be rebuilt for each caller.
   const NEXT_FACTORY = Symbol('hubkit.nextFactory');
+  // Share transports within a pending cache entry, independently of caller-specific processing.
+  const inFlightRequests = new WeakMap();
 
   class Directive {
     constructor(arg, body, options, hubkit) {
@@ -194,50 +196,29 @@ if (typeof require !== 'undefined') {
         ['GET', 'HEAD', 'OPTIONS', 'TRACE', 'PUT', 'DELETE'].includes(options.method);
       if (typeof options.idempotent === 'boolean') idempotent = options.idempotent;
 
-      let cachedItem = null, cacheKey;
+      let cachedItem = null, cacheKey, cacheEntry;
       const cacheable = options.cache && options.method === 'GET';
       if (cacheable) {
         // Pin cached value, in case it gets evicted during the request
         cacheKey = computeCacheKey(path, options);
-        cachedItem = checkCache(options, cacheKey);
-        if (cachedItem && (
+        cacheEntry = checkCache(options, cacheKey);
+        cachedItem = cacheEntry?.pending ? cacheEntry.cachedItem : cacheEntry;
+        if (cachedItem && !cacheEntry.pending && (
           options.immutable || options.stale ||
-          !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
+          !options.fresh && Date.now() < cachedItem.expiry
         )) {
-          if (options.stats) {
-            if (cachedItem.promise) {
-              cachedItem.promise.then(() => {
-                const entry = options.cache.get(cacheKey);
-                options.stats.record(true, entry ? entry.size : 1);
-              }).catch(() => {
-                options.stats.record(true);
-              });
-            } else {
-              options.stats.record(true, cachedItem.size);
-            }
-          }
-          let promise = cachedItem.promise;
-          if (promise && options.timeout === 0) {
-            throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
-          }
-          if (promise && options.timeout) {
-            // Bound this caller's wait without aborting or evicting the shared request.
-            let timeoutId;
-            const timeout = new Promise((resolve, reject) => {
-              timeoutId = setTimeout(() => reject(
-                new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
-              options.timeout);
-            });
-            promise = Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
-          }
-          return promise ?
-            promise.then(value => attachFreshNext(value, this, options)) :
-            Promise.resolve(attachFreshNext(cachedItem.value, this, options));
+          if (options.stats) options.stats.record(true, cachedItem.size);
+          return attachFreshNext(cachedItem.value, this, options);
         }
+        if (!cacheEntry?.pending || options.fresh) {
+          cacheEntry = {pending: 0, cachedItem, size: 100};
+          options.cache.set(cacheKey, cacheEntry);
+        }
+        cacheEntry.pending++;
       }
 
       const requestPromise = new Promise((resolve, reject) => {
-        let result, tries = 0;
+        let result, tries = 0, shared = false;
         send(options.body, options._cause || 'initial');
 
         function handleError(error, res, status = res?.status) {
@@ -245,8 +226,7 @@ if (typeof require !== 'undefined') {
             [...res.headers].filter(([k]) => k !== 'authorization'));
           error.request = {method: options.method, url: path, headers};
           if (cacheable && res) {
-            options.cache.delete(cacheKey);
-            if (options.stats) options.stats.record(false);
+            if (options.stats) options.stats.record(shared);
           }
           const rateLimited = [403, 429].includes(status);
           if (rateLimited) {
@@ -265,7 +245,12 @@ if (typeof require !== 'undefined') {
             }
           }
           let value;
-          if (options.onError) value = options.onError(error);
+          try {
+            if (options.onError) value = options.onError(error);
+          } catch (e) {
+            reject(e);
+            return;
+          }
           if (value === undefined && idempotent) {
             if (error.networkFailure || [500, 502, 503, 504].includes(status)) {
               value = Hubkit.RETRY;
@@ -285,7 +270,6 @@ if (typeof require !== 'undefined') {
         }
 
         function retry() {
-          if (cacheable) cachedItem = checkCache(options, cacheKey);
           send(options.body, 'retry');
         }
 
@@ -308,7 +292,7 @@ if (typeof require !== 'undefined') {
               extractMetadata(cachedItem.headers, options.metadata);
               extractMetadata(res.headers, options.metadata);
               // Restore our in-flight entry without overwriting a newer concurrent request.
-              if (checkCache(options, cacheKey)?.promise === requestPromise) {
+              if (options.cache.get(cacheKey) === cacheEntry) {
                 options.cache.set(cacheKey, {...cachedItem, expiry: parseExpiry(res.headers)});
               }
               if (options.stats) options.stats.record(true, cachedItem.size);
@@ -319,10 +303,6 @@ if (typeof require !== 'undefined') {
                   res.data.message === 'Not Found'
               ) || res.data && res.data.errors
             ) {
-              if (cacheable) {
-                options.cache.delete(cacheKey);
-                if (options.stats) options.stats.record(false);
-              }
               let status = res.status;
               if (res.data && res.data.errors && res.status === 200) {
                 if (res.data.errors.every(error =>
@@ -529,16 +509,14 @@ if (typeof require !== 'undefined') {
                   rawData ? rawData.length || rawData.size || rawData.byteLength :
                   res.data ? res.data.size || res.data.byteLength :
                   1;
-                if (options.stats) options.stats.record(false, size);
-                if (res.status === 200 &&
+                if (options.stats) options.stats.record(shared, size);
+                if (options.cache.get(cacheKey) === cacheEntry && res.status === 200 &&
                     (res.headers.get('etag') || res.headers.get('cache-control')) &&
                     size <= options.cache.maxSize * options.maxItemSizeRatio) {
                   options.cache.set(cacheKey, {
                     value: result, eTag: res.headers.get('etag'), status: res.status,
                     headers: res.headers, size, expiry: parseExpiry(res.headers)
                   });
-                } else {
-                  options.cache.delete(cacheKey);
                 }
               }
               resolve(result);
@@ -573,7 +551,6 @@ if (typeof require !== 'undefined') {
             const config = {
               url: path,
               method: options.method,
-              timeout,
               params: {},
               headers: {}
             };
@@ -594,15 +571,44 @@ if (typeof require !== 'undefined') {
             }
             let received = false;
             try {
-              const res = await fetchResponse(config, options);
-              rawData = res.rawData;
+              let flights, requestKey;
+              if (cacheable) {
+                flights = inFlightRequests.get(cacheEntry);
+                if (!flights) inFlightRequests.set(cacheEntry, flights = new Map());
+                requestKey = computeCacheKey(path, options) + '\n' + JSON.stringify(config.headers);
+              }
+              let flight = !options.fresh && flights?.get(requestKey);
+              shared = !!flight;
+              if (!flight) {
+                flight = {
+                  controller: new AbortController(), users: 0, settled: false, cachedItem,
+                  remove() {
+                    if (flights?.get(requestKey) === flight) flights.delete(requestKey);
+                  }
+                };
+                flight.promise = fetchResponse(config, options, flight.controller.signal)
+                  .finally(() => {
+                    flight.settled = true;
+                    flight.remove();
+                  });
+                if (flights) flights.set(requestKey, flight);
+              }
+              const response = await waitForResponse(flight, timeout);
+              // Each caller parses its own data: pagination and error handlers may mutate it.
+              rawData = options.responseType === 'arraybuffer' && response.status < 400 ?
+                response.rawData.slice(0) : response.rawData;
+              const res = {
+                ...response, rawData,
+                data: parseResponseData(rawData, response.headers, options, response.status)
+              };
+              if (res.status === 304) cachedItem = flight.cachedItem;
               received = true;
               const api = detectApi(path);
-              const cost = api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
-              if (options.onReceive) options.onReceive({api, cost});
+              const cost = shared ? 0 : api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
+              if (options.onReceive) options.onReceive({api, cost}, shared);
               onComplete(res, rawData);
             } catch (e) {
-              if (options.onReceive && !received) options.onReceive();
+              if (options.onReceive && !received) options.onReceive(undefined, shared);
               onError(e);
             }
           } catch (error) {
@@ -612,13 +618,11 @@ if (typeof require !== 'undefined') {
       });
 
       if (cacheable) {
-        options.cache.set(cacheKey, {promise: requestPromise, size: 100});
-        return requestPromise.catch(error => {
-          // A newer request may already have replaced this in-flight entry.
-          if (options.cache.get(cacheKey)?.promise === requestPromise) {
+        return requestPromise.finally(() => {
+          // Keep the pending entry while another caller is still processing the same request.
+          if (!--cacheEntry.pending && options.cache.get(cacheKey) === cacheEntry) {
             options.cache.delete(cacheKey);
           }
-          throw error;
         });
       }
       return requestPromise;
@@ -780,24 +784,46 @@ if (typeof require !== 'undefined') {
     /* eslint-enable dot-notation */
   }
 
-  async function fetchResponse(config, options) {
-    const init = {method: config.method, headers: config.headers};
+  async function waitForResponse(flight, timeout) {
+    flight.users++;
+    let timeoutId;
+    try {
+      let promise = flight.promise;
+      if (timeout) {
+        const expired = new Promise((resolve, reject) => {
+          timeoutId = setTimeout(() => {
+            const error =
+              new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+            error.networkFailure = true;
+            reject(error);
+          }, timeout);
+        });
+        promise = Promise.race([promise, expired]);
+      }
+      return await promise;
+    } catch (error) {
+      // Callers annotate errors and choose independent recovery/retry policies.
+      const copy = error instanceof DOMException ?
+        new DOMException(error.message, error.name) : Object.create(Object.getPrototypeOf(error));
+      Object.defineProperties(copy, Object.getOwnPropertyDescriptors(error));
+      throw copy;
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (!--flight.users && !flight.settled) {
+        flight.remove();
+        flight.controller.abort();
+      }
+    }
+  }
+
+  async function fetchResponse(config, options, signal) {
+    const init = {method: config.method, headers: config.headers, signal};
     if (config.body) {
       init.body = JSON.stringify(config.body);
       init.headers['Content-Type'] = 'application/json';
     }
     const url = new URL(config.url);
     for (const key in config.params) url.searchParams.set(key, config.params[key]);
-    let timeoutId;
-    if (config.timeout) {
-      // TODO: Switch to AbortSignal.timeout once widely supported.
-      const controller = new AbortController();
-      init.signal = controller.signal;
-      timeoutId = setTimeout(() => {
-        controller.abort(
-          new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
-      }, config.timeout);
-    }
     let response, rawData;
     try {
       response = await fetch(url, init);
@@ -807,13 +833,10 @@ if (typeof require !== 'undefined') {
     } catch (error) {
       error.networkFailure = true;
       throw error;
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
     }
     return {
       status: response.status,
       headers: response.headers,
-      data: parseResponseData(rawData, response.headers, options, response.status),
       rawData
     };
   }
