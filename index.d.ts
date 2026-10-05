@@ -35,6 +35,8 @@ export type Identified403Error = ({
   error?: never;
 };
 
+type OnSendResult = number | null | void;
+
 interface Options {
   method?: string;
   host?: string;
@@ -73,8 +75,8 @@ interface Options {
   [key: string]: any;
 
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
-  // Returns a timeout; zero rejects immediately without sending the request.
-  onSend?(cause: 'initial' | 'retry' | 'page'): number | Promise<number>;
+  // Returns a timeout; zero rejects immediately, nullish results retain the options timeout.
+  onSend?(cause: 'initial' | 'retry' | 'page'): OnSendResult | Promise<OnSendResult>;
   onReceive?(call?: {api: 'core' | 'graph' | 'search', cost: number | undefined}): void;
   onError?(error: Error & {
     status?: number,
