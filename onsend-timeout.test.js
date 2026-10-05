@@ -86,13 +86,31 @@ for (const environment of ['Node', 'browser']) {
     });
   }
 
-  test(`${environment}: options.timeout zero still disables the request timeout`, async t => {
+  for (const [description, onSend] of [
+    ['no callback', undefined], ['undefined callback result', () => undefined],
+    ['async null callback result', async () => null]
+  ]) {
+    test(`${environment}: options.timeout zero stops sends with ${description}`, async t => {
+      const fetch = t.mock.fn(async () => new globalThis.Response('{}'));
+      const hubkit = createHubkit(environment, fetch);
+      const onError = t.mock.fn();
+      const onReceive = t.mock.fn();
+      await assert.rejects(hubkit.request('/zero-option', {
+        timeout: 0, onSend, onError, onReceive
+      }), {name: 'TimeoutError'});
+      assert.equal(fetch.mock.callCount(), 0);
+      assert.equal(onError.mock.callCount(), 0);
+      assert.equal(onReceive.mock.callCount(), 0);
+    });
+  }
+
+  test(`${environment}: an omitted timeout sends the request without a timer`, async t => {
     const fetch = t.mock.fn(async (url, {signal}) => {
       assert.equal(signal, undefined);
       return new globalThis.Response('{}', {headers: {'content-type': 'application/json'}});
     });
     const hubkit = createHubkit(environment, fetch);
-    await hubkit.request('/no-timeout', {timeout: 0});
+    await hubkit.request('/no-timeout');
     assert.equal(fetch.mock.callCount(), 1);
   });
 }
