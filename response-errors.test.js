@@ -19,6 +19,29 @@ function createHubkit(status, body, contentType = 'application/json') {
   return {Hubkit: browser.self.Hubkit, requests: () => requests};
 }
 
+for (const [message, expectedStatus] of [
+  ['An internal error occurred, please try again.', 500],
+  ['an internal error occurred', 500],
+  ['Something went wrong while executing your query.', 500],
+  ['Merging stacked PRs via this endpoint is not supported.', 400],
+  ['Field does not exist on type Query.', 400]
+]) {
+  test(`GraphQL error classification: ${message}`, async () => {
+    const errors = [{message}];
+    const {Hubkit, requests} = createHubkit(200, JSON.stringify({errors}));
+    await assert.rejects(new Hubkit().graph('query { viewer { login } }', {
+      onError: () => Hubkit.DONT_RETRY
+    }), error => {
+      assert.equal(error.status, expectedStatus);
+      assert.equal(error.response.status, 200);
+      assert.equal(error.errors[0].message, message);
+      assert.ok(error.message.includes(message));
+      return true;
+    });
+    assert.equal(requests(), 1);
+  });
+}
+
 for (const options of [{}, {media: 'raw'}, {responseType: 'text'},
   {media: 'raw', responseType: 'blob'}, {responseType: 'arraybuffer'}]) {
   for (const [status, message, code] of [
