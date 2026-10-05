@@ -311,7 +311,7 @@ if (typeof require !== 'undefined') {
                   error.type === 'NOT_FOUND'
                 )) status = 404;
                 else if (res.data.errors.some(error =>
-                  /^something went wrong/i.test(error.message)
+                  /^(?:something went wrong|an internal error occurred)/i.test(error.message)
                 )) status = 500;
                 else status = 400;
               }
