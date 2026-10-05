@@ -589,7 +589,16 @@ if (typeof require !== 'undefined') {
         }
       });
 
-      if (cacheable) options.cache.set(cacheKey, {promise: requestPromise, size: 100});
+      if (cacheable) {
+        options.cache.set(cacheKey, {promise: requestPromise, size: 100});
+        return requestPromise.catch(error => {
+          // A newer request may already have replaced this in-flight entry.
+          if (options.cache.get(cacheKey)?.promise === requestPromise) {
+            options.cache.delete(cacheKey);
+          }
+          throw error;
+        });
+      }
       return requestPromise;
     }
 
