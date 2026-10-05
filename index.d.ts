@@ -80,7 +80,8 @@ interface Options {
   [key: string]: any;
 
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
-  onSend?(cause: 'initial' | 'retry' | 'page'): number | Promise<number>;  // returns timeout
+  // Returns a timeout; zero rejects immediately without sending the request.
+  onSend?(cause: 'initial' | 'retry' | 'page'): number | Promise<number>;
   onReceive?(call?: {api: 'core' | 'graph' | 'search', cost: number | undefined}): void;
   onError?(error: Error & {
     status?: number,
