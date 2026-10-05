@@ -112,6 +112,8 @@ the return value by default (see below).
 
 After every request, quota information and `oAuthScopes` (the scopes your authorization entitles
 you to) are available on your `metadata` object (see below), or on `Hubkit` if you didn't set one.
+The default destination is the `Hubkit` constructor, shared by all instances. Supply a separate
+`metadata` object to keep observations separate.
 Quota metadata is also updated on HTTP errors, before `onError` runs or the request rejects.
 
 | Core quota | Search quota | GraphQL quota | Meaning |
@@ -129,6 +131,12 @@ observations are not combined. If no valid quota headers are present, the previo
 is left unchanged. Cache hits and transport failures do not refresh observations. A `304`
 response can update quota from its own headers, but never from cached headers. Retries and
 automatic pagination leave the latest observation in metadata when the request finishes.
+
+Since 9.1.0, missing quota headers no longer assign `null` or an empty string to quota fields.
+Before the first valid observation, quota properties may be absent entirely. A partial observation
+creates the bucket's fields, with missing or invalid values set to `undefined`. Check whether a
+value is available with `typeof metadata.rateLimit === 'number'`; do not rely on `=== null` or
+`'rateLimit' in metadata`.
 
 You can augment a Hubkit instance by calling `gh.scope({...moreOptions})` to return a new instance that combines both sets of options.
 
