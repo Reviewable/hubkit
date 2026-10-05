@@ -280,18 +280,17 @@ if (typeof require !== 'undefined') {
         }
 
         const onComplete = (res, rawData) => {
-          if (res.status !== 304) extractMetadata(path, res.headers, options.metadata);
+          if (res.status !== 304) extractMetadata(res.headers, options.metadata);
 
           try {
             if (res.status === 304) {
               // Backfill metadata like x-oauth-scopes, but never replay cached quota observations.
               // Cache keys include the token, so user-specific headers are safe to replay.
-              extractMetadata(path, cachedItem.headers, options.metadata, true);
-              extractMetadata(path, res.headers, options.metadata);
-              cachedItem.expiry = parseExpiry(res.headers);
+              extractMetadata(cachedItem.headers, options.metadata);
+              extractMetadata(res.headers, options.metadata);
               // Restore our in-flight entry without overwriting a newer concurrent request.
               if (checkCache(options, cacheKey)?.promise === requestPromise) {
-                options.cache.set(cacheKey, cachedItem);
+                options.cache.set(cacheKey, {...cachedItem, expiry: parseExpiry(res.headers)});
               }
               if (options.stats) options.stats.record(true, cachedItem.size);
               resolve(attachFreshNext(cachedItem.value, this, options));
@@ -756,6 +755,8 @@ if (typeof require !== 'undefined') {
     let response, rawData;
     try {
       response = await fetch(url, init);
+      // Record quota in header-arrival order, before slow or failing body reads can reorder it.
+      extractQuotaMetadata(config.url, response.headers, options.metadata);
       rawData = await readResponseBody(response, options);
     } catch (error) {
       error.networkFailure = true;
@@ -796,11 +797,12 @@ if (typeof require !== 'undefined') {
     return rawData;
   }
 
-  function extractMetadata(path, headers, metadata, cached = false) {
+  function extractQuotaMetadata(path, headers, metadata) {
     if (!(headers && metadata)) return;
+    const timestamp = Date.now();
     const resource = headers.get('x-ratelimit-resource');
     const api = resource === 'graphql' ? 'graph' : resource || detectApi(path);
-    if (!cached && ['core', 'search', 'graph'].includes(api)) {
+    if (['core', 'search', 'graph'].includes(api)) {
       const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
       const quota = {};
       for (const [suffix, header, multiplier] of [
@@ -813,9 +815,13 @@ if (typeof require !== 'undefined') {
       }
       if (Object.values(quota).some(value => value !== undefined)) {
         // Keep each observation together: missing fields must not inherit an older quota window.
-        Object.assign(metadata, quota, {[`${rateName}Timestamp`]: Date.now()});
+        Object.assign(metadata, quota, {[`${rateName}Timestamp`]: timestamp});
       }
     }
+  }
+
+  function extractMetadata(headers, metadata) {
+    if (!(headers && metadata)) return;
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
     // missing.
     if (headers.has('x-oauth-scopes')) {

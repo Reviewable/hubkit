@@ -30,9 +30,19 @@ function createHubkit(responses) {
       if (response.wait) await response.wait;
       if (response.now !== undefined) state.now = response.now;
       const status = response.status ?? 200;
-      return new globalThis.Response(status === 304 ? null : JSON.stringify(response.body ?? []), {
-        status, headers: {'content-type': 'application/json', ...response.headers}
-      });
+      const result = new globalThis.Response(
+        status === 304 ? null : JSON.stringify(response.body ?? []), {
+          status, headers: {'content-type': 'application/json', ...response.headers}
+        });
+      if (response.bodyWait) {
+        const readText = result.text.bind(result);
+        result.text = async () => {
+          response.reading.resolve();
+          await response.bodyWait;
+          return readText();
+        };
+      }
+      return result;
     }
   };
   vm.runInNewContext(readFileSync(require.resolve('./hubkit.js'), 'utf8'), browser);
@@ -122,6 +132,53 @@ test('observations for core and GraphQL keep independent timestamps', async () =
   assert.equal(metadata.rateLimitTimestamp, NOW);
   assert.equal(metadata.graphRateLimitTimestamp, NOW + 1000);
 });
+
+for (const status of [200, 429]) {
+  for (const sameMillisecond of [false, true]) {
+    const timing = sameMillisecond ? 'same-millisecond' : 'later';
+    test(`delayed HTTP ${status} bodies preserve ${timing} quota`,
+      async () => {
+        const delayed = Promise.withResolvers(), reading = Promise.withResolvers();
+        const {Hubkit, state} = createHubkit([
+          {status, headers: quotaHeaders('core', 100), bodyWait: delayed.promise, reading},
+          {headers: quotaHeaders('core', 99), now: NOW + (sameMillisecond ? 0 : 1000)}
+        ]);
+        const metadata = {};
+        const gh = new Hubkit({metadata, cache: null, maxTries: 1});
+        const olderRequest = gh.request('/repos/o/r');
+        const older = status === 200 ? olderRequest :
+          assert.rejects(olderRequest, error => error.status === status);
+        await reading.promise;
+        await gh.request('/repos/o/r');
+        const newer = {...metadata};
+        assert.equal(metadata.rateLimitRemaining, 99);
+        assert.equal(metadata.rateLimitTimestamp, state.now);
+        state.now = NOW + 2000;
+        delayed.resolve();
+        await older;
+        assert.deepEqual(metadata, newer);
+      });
+  }
+}
+
+for (const failBody of [false, true]) {
+  test(`quota is observed before a slow body ${failBody ? 'fails' : 'completes'}`, async () => {
+    const delayed = Promise.withResolvers(), reading = Promise.withResolvers();
+    const {Hubkit, state} = createHubkit([
+      {headers: quotaHeaders(), bodyWait: delayed.promise, reading}
+    ]);
+    const metadata = {};
+    const request = new Hubkit({metadata, maxTries: 1}).request('/repos/o/r');
+    const completed = failBody ? assert.rejects(request, /body read failed/) : request;
+    await reading.promise;
+    state.now = NOW + 1000;
+    if (failBody) delayed.reject(new Error('body read failed'));
+    else delayed.resolve();
+    await completed;
+    assert.equal(metadata.rateLimitRemaining, 4500);
+    assert.equal(metadata.rateLimitTimestamp, NOW);
+  });
+}
 
 test('invalid headers and transport errors do not refresh observations', async () => {
   const {Hubkit} = createHubkit([
@@ -241,6 +298,31 @@ test('a delayed 304 cannot overwrite a newer concurrent response in the cache', 
   assert.equal((await older).version, 1);
   assert.equal((await gh.request('/repos/o/r')).version, 2);
   assert.equal(state.requests.length, 3);
+});
+
+test('a delayed 304 cannot change the expiry of a newer revalidation', async () => {
+  const delayed = Promise.withResolvers();
+  const headers = {etag: 'test-etag', 'cache-control': 'max-age=600'};
+  const {Hubkit, state} = createHubkit([
+    {body: {version: 1}, headers},
+    {status: 304, headers, wait: delayed.promise},
+    {status: 304, headers: {...headers, 'cache-control': 'max-age=0'}},
+    {body: {version: 2}, headers}
+  ]);
+  const gh = new Hubkit();
+  await gh.request('/repos/o/r');
+  let older;
+  // Start a second request before the first installs its in-flight entry, so both pin the body.
+  await gh.request('/repos/o/r', {fresh: true, onSend: () => {
+    older = gh.request('/repos/o/r', {fresh: true});
+  }});
+  assert.equal(state.requests.length, 3);
+  assert.equal(state.requests[1].options.headers['If-None-Match'], 'test-etag');
+  assert.equal(state.requests[2].options.headers['If-None-Match'], 'test-etag');
+  delayed.resolve();
+  await older;
+  assert.equal((await gh.request('/repos/o/r')).version, 2);
+  assert.equal(state.requests.length, 4);
 });
 
 for (const status of [403, 429]) {

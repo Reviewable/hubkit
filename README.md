@@ -121,16 +121,19 @@ Quota metadata is also updated on HTTP errors, before `onError` runs or the requ
 | `rateLimit` | `searchRateLimit` | `graphRateLimit` | Maximum quota |
 | `rateLimitRemaining` | `searchRateLimitRemaining` | `graphRateLimitRemaining` | Remaining quota |
 | `rateLimitResetTimestamp` | `searchRateLimitResetTimestamp` | `graphRateLimitResetTimestamp` | Reset time, in milliseconds since the Unix epoch |
-| `rateLimitTimestamp` | `searchRateLimitTimestamp` | `graphRateLimitTimestamp` | Observation time, in milliseconds since the Unix epoch |
+| `rateLimitTimestamp` | `searchRateLimitTimestamp` | `graphRateLimitTimestamp` | Header receipt time, in milliseconds since the Unix epoch |
 
 Each bucket is updated independently from response headers. `x-ratelimit-resource` selects the
 bucket when present; otherwise Hubkit infers it from the request URL. Other resource families
 are not recorded in these fields. An observation contains the valid nonnegative integer quota
 headers from that response; missing or invalid fields are `undefined`, so values from different
 observations are not combined. If no valid quota headers are present, the previous observation
-is left unchanged. Cache hits and transport failures do not refresh observations. A `304`
-response can update quota from its own headers, but never from cached headers. Retries and
-automatic pagination leave the latest observation in metadata when the request finishes.
+is left unchanged. Quota is recorded when response headers arrive, before reading the body,
+so a slow body cannot overwrite a later observation or make older quota appear fresh. Received
+quota headers remain available even if reading the body subsequently fails. Cache hits and
+transport failures before receiving headers do not refresh observations. A `304` response can
+update quota from its own headers, but never from cached headers. Retries and automatic
+pagination leave the latest received quota observation in metadata when the request finishes.
 
 Since 9.1.0, missing quota headers no longer assign `null` or an empty string to quota fields.
 Before the first valid observation, quota properties may be absent entirely. A partial observation
