@@ -318,8 +318,10 @@ if (typeof require !== 'undefined') {
                 else status = 400;
               }
               if (status === 404 && typeof options.ifNotFound !== 'undefined') {
+                if (cacheable && options.stats) options.stats.record(shared);
                 resolve(options.ifNotFound);
               } else if (status === 410 && typeof options.ifGone !== 'undefined') {
+                if (cacheable && options.stats) options.stats.record(shared);
                 resolve(options.ifGone);
               } else {
                 let errors = '';
@@ -545,7 +547,8 @@ if (typeof require !== 'undefined') {
           try {
             const timeout = await options.onSend?.(cause) ?? options.timeout;
             if (timeout === 0) {
-              throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+              onError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+              return;
             }
             let rawData;
             const config = {
@@ -575,6 +578,7 @@ if (typeof require !== 'undefined') {
               if (cacheable) {
                 flights = inFlightRequests.get(cacheEntry);
                 if (!flights) inFlightRequests.set(cacheEntry, flights = new Map());
+                // cacheKey identifies the whole result; path/body can change between pages.
                 requestKey = computeCacheKey(path, options) + '\n' + JSON.stringify(config.headers);
               }
               let flight = !options.fresh && flights?.get(requestKey);
@@ -595,8 +599,7 @@ if (typeof require !== 'undefined') {
               }
               const response = await waitForResponse(flight, timeout);
               // Each caller parses its own data: pagination and error handlers may mutate it.
-              rawData = options.responseType === 'arraybuffer' && response.status < 400 ?
-                response.rawData.slice(0) : response.rawData;
+              rawData = response.rawData;
               const res = {
                 ...response, rawData,
                 data: parseResponseData(rawData, response.headers, options, response.status)
