@@ -53,7 +53,7 @@ interface Options {
   /** Successful response representation. HTTP errors (status >= 400) use JSON or text instead. */
   responseType?: 'text' | 'arraybuffer' | 'blob';
   maxTries?: number;
-  timeout?: number;
+  timeout?: number;  // zero rejects immediately without sending the request
   maxItemSizeRatio?: number;
   metadata?: Metadata;
   stats?: Stats;
