@@ -184,6 +184,19 @@ comments, whitespace, BOMs, and commas. If `body.operationName` is supplied, it 
 query's name. Documents starting with fragments or descriptions, or selecting a later operation,
 require an explicit retry decision. This same classification controls the error's `method` attribute.
 
+For GraphQL requests, `body.idempotent: true` enables the usual automatic retries when the caller
+knows the operation is idempotent, including queries starting with fragments. Set it to `false` to
+disable automatic retries for a recognized query. Only boolean values override the inference, and
+`onError` still takes precedence. The flag is local to Hubkit: it is removed from the outgoing
+GraphQL body without changing the caller's object. For example:
+
+```js
+await gh.graph(fragmentFirstQuery, {body: {idempotent: true}, variables});
+```
+
+The flag also works with `request('POST /graphql', {body: {query, idempotent: true}})` and scoped
+defaults. It controls retries without changing `error.method` or the classification of REST requests.
+
 #### Options reference
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
