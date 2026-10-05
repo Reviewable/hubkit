@@ -234,7 +234,7 @@ if (typeof require !== 'undefined') {
           if (value === undefined) {
             if (error.networkFailure || [500, 502, 503, 504].includes(res?.status)) {
               value = Hubkit.RETRY;
-            } else if (res?.status === 403 && res.headers.get('retry-after')) {
+            } else if ([403, 429].includes(res?.status) && res.headers.get('retry-after')) {
               try {
                 error.retryDelay =
                   parseInt(res.headers.get('retry-after').replace(/[^\d]*$/, ''), 10) * 1000;
@@ -242,7 +242,7 @@ if (typeof require !== 'undefined') {
               } catch {
                 // ignore, don't retry request
               }
-            } else if (res?.status === 403 &&
+            } else if ([403, 429].includes(res?.status) &&
                 res.headers.get('x-ratelimit-remaining') === '0' &&
                 res.headers.get('x-ratelimit-reset')) {
               try {
@@ -279,16 +279,16 @@ if (typeof require !== 'undefined') {
         }
 
         const onComplete = (res, rawData) => {
-          extractMetadata(path, res.headers, options.metadata);
+          if (res.status !== 304) extractMetadata(path, res.headers, options.metadata);
 
           try {
             if (res.status === 304) {
-              // Backfill metadata from the cache as some (like x-oauth-scopes) are not re-emitted
-              // with a 304, but let response override cached values if present.  (Note that cache
-              // keys include the token, so it's safe to replay user-specific headers from cache.)
-              extractMetadata(path, cachedItem.headers, options.metadata);
+              // Backfill metadata like x-oauth-scopes, but never replay cached quota observations.
+              // Cache keys include the token, so user-specific headers are safe to replay.
+              extractMetadata(path, cachedItem.headers, options.metadata, true);
               extractMetadata(path, res.headers, options.metadata);
               cachedItem.expiry = parseExpiry(res.headers);
+              options.cache.set(cacheKey, cachedItem);
               if (options.stats) options.stats.record(true, cachedItem.size);
               resolve(attachFreshNext(cachedItem.value, this, options));
             } else if (
@@ -792,14 +792,27 @@ if (typeof require !== 'undefined') {
     return rawData;
   }
 
-  function extractMetadata(path, headers, metadata) {
+  function extractMetadata(path, headers, metadata, cached = false) {
     if (!(headers && metadata)) return;
-    const api = detectApi(path);
-    const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
-    metadata[rateName] = headers.get('x-ratelimit-limit') &&
-      parseInt(headers.get('x-ratelimit-limit'), 10);
-    metadata[`${rateName}Remaining`] = headers.get('x-ratelimit-remaining') &&
-      parseInt(headers.get('x-ratelimit-remaining'), 10);
+    const resource = headers.get('x-ratelimit-resource');
+    const api = resource === 'graphql' ? 'graph' : resource || detectApi(path);
+    if (!cached && ['core', 'search', 'graph'].includes(api)) {
+      const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
+      const quota = {};
+      for (const [suffix, header, multiplier] of [
+        ['', 'limit', 1], ['Remaining', 'remaining', 1], ['Used', 'used', 1],
+        ['ResetTimestamp', 'reset', 1000]
+      ]) {
+        const text = headers.get(`x-ratelimit-${header}`);
+        const value = text?.trim() ? Number(text) : NaN;
+        quota[rateName + suffix] = Number.isSafeInteger(value) && value >= 0 &&
+          Number.isSafeInteger(value * multiplier) ? value * multiplier : undefined;
+      }
+      if (Object.values(quota).some(value => value !== undefined)) {
+        // Keep each observation together: missing fields must not inherit an older quota window.
+        Object.assign(metadata, quota, {[`${rateName}Timestamp`]: Date.now()});
+      }
+    }
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
     // missing.
     if (headers.has('x-oauth-scopes')) {

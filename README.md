@@ -110,11 +110,26 @@ except that requests with option `{boolean: true}` will return `true` or `false`
 way to automate it).  Note that for paged responses, all pages will be concatenated together into
 the return value by default (see below).
 
-After every request, you can access `rateLimit` and `rateLimitRemaining` (or `searchRateLimit` and
-`searchRateLimitRemaining` if it's a search request, or `graphRateLimit` and
-`graphRateLimitRemaining` if it's a GraphQL query) for the latest information on your GitHub
-quotas, and `oAuthScopes` to see what scopes your authorization entitles you to, on your `metadata`
-object (see below) or on `Hubkit` if you didn't set one.
+After every request, quota information and `oAuthScopes` (the scopes your authorization entitles
+you to) are available on your `metadata` object (see below), or on `Hubkit` if you didn't set one.
+Quota metadata is also updated on HTTP errors, before `onError` runs or the request rejects.
+
+| Core quota | Search quota | GraphQL quota | Meaning |
+| --- | --- | --- | --- |
+| `rateLimit` | `searchRateLimit` | `graphRateLimit` | Maximum quota |
+| `rateLimitRemaining` | `searchRateLimitRemaining` | `graphRateLimitRemaining` | Remaining quota |
+| `rateLimitUsed` | `searchRateLimitUsed` | `graphRateLimitUsed` | Used quota |
+| `rateLimitResetTimestamp` | `searchRateLimitResetTimestamp` | `graphRateLimitResetTimestamp` | Reset time, in milliseconds since the Unix epoch |
+| `rateLimitTimestamp` | `searchRateLimitTimestamp` | `graphRateLimitTimestamp` | Observation time, in milliseconds since the Unix epoch |
+
+Each bucket is updated independently from response headers. `x-ratelimit-resource` selects the
+bucket when present; otherwise Hubkit infers it from the request URL. Other resource families
+are not recorded in these fields. An observation contains the valid nonnegative integer quota
+headers from that response; missing or invalid fields are `undefined`, so values from different
+observations are not combined. If no valid quota headers are present, the previous observation
+is left unchanged. Cache hits and transport failures do not refresh observations. A `304`
+response can update quota from its own headers, but never from cached headers. Retries and
+automatic pagination leave the latest observation in metadata when the request finishes.
 
 You can augment a Hubkit instance by calling `gh.scope({...moreOptions})` to return a new instance that combines both sets of options.
 
@@ -214,7 +229,12 @@ of items.  This also works for GraphQL queries, as long as your query has a `$af
 * `onError`: A function to be called when an error occurs, either in the request itself or an
 unexpected 4xx or 5xx response.  If it's an error response, the error object will have `status`,
 `method`, `path`, and `response` attributes.  If the function returns `undefined`, the promise will
-be rejected as usual (or the request retried in some special cases, like network failures and abuse quota 403s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
+be rejected as usual (or the request retried in some special cases, like network failures and rate-limited 403s or 429s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
+
+Rate-limited `403` and `429` responses follow the same retry rules: `Retry-After` takes precedence;
+otherwise, exhausted quota (`x-ratelimit-remaining: 0`) with `x-ratelimit-reset` determines the
+delay. Automatic retries respect `maxTries` and require the delay to fit within `timeout` when
+one is set. If the request rejects, `error.retryDelay` contains the computed delay in milliseconds.
 * `maxTries`: The maximum number of times that a request will be tried (including the original call) if `onError` keeps returning `Hubkit.RETRY`.
 * `onSend`: A function to be called before every individual request gets sent to GitHub.  The sole argument will be a string indicating the reason for the request: `initial` for the initial request, `page` for an automatic next page request (if the `allPages` option is on), and `retry` for an explicit or automatic retry.  The function can return a duration in milliseconds that will override the timeout provided in the options (if any).  The function can also return a promise for the above, in which case the request will be held until the promise is resolved.
 * `onReceive`. A function to be called after a reponse (or error) is received from GitHub.  If a response was received then the function will be passed an object with properties `api` (indicating the API used, and hence the quota pool) and `cost` (how much quota was used by this request).  The function's return value, if any, is discarded.
