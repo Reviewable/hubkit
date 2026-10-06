@@ -40,7 +40,18 @@ export type Identified403Error = ({
   error?: never;
 };
 
-interface Options {
+type OnSendResult = number | null | void;
+
+interface CachedResponse {
+  value: any;
+  eTag?: string;
+  status: number;
+  headers: any;
+  size: number;
+  expiry?: number;
+}
+
+export interface Options {
   method?: string;
   host?: string;
   graphHost?: string;
@@ -57,17 +68,17 @@ interface Options {
   immutable?: boolean;
   fresh?: boolean;
   stale?: boolean;
-  /** Successful response representation. HTTP errors (status >= 400) use JSON or text instead. */
+  /** Successful response representation. Treat shared buffers as read-only; copy before mutation
+   * or transfer. HTTP errors (status >= 400) use JSON or text instead. */
   responseType?: 'text' | 'arraybuffer' | 'blob';
   maxTries?: number;
-  timeout?: number;
+  timeout?: number;  // zero invokes onError immediately without sending the request
   maxItemSizeRatio?: number;
   metadata?: Metadata;
   stats?: Stats;
   cache?: LRUCache<
     string,
-    {promise: Promise<any>, size: number} |
-    {value: any, eTag?: string, status: number, headers: any, size: number, expiry?: number}
+    {pending: number, cachedItem?: CachedResponse, size: number} | CachedResponse
   > | null;
   userAgent?: string;
   autoQueryRateLimit?: boolean;
@@ -80,8 +91,14 @@ interface Options {
   [key: string]: any;
 
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
-  onSend?(cause: 'initial' | 'retry' | 'page'): number | Promise<number>;  // returns timeout
-  onReceive?(call?: {api: 'core' | 'graph' | 'search', cost: number | undefined}): void;
+  // Returns a timeout; zero invokes onError immediately, nullish results retain the options timeout.
+  onSend?(cause: 'initial' | 'retry' | 'page'): OnSendResult | Promise<OnSendResult>;
+  // Called once per physical fetch using the initiating caller's callback, even after its timeout.
+  // Throws reject the shared attempt; latency measures the fetch through body completion or abort.
+  onReceive?(
+    call: {api: 'core' | 'graph' | 'search', cost: number | undefined} | undefined,
+    latency: number
+  ): void;
   onError?(error: Error & {
     status?: number,
     data?: any,

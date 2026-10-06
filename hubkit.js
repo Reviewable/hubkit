@@ -11,6 +11,8 @@ if (typeof require !== 'undefined') {
 
   // Carries a paginated response's pager factory so `next` can be rebuilt for each caller.
   const NEXT_FACTORY = Symbol('hubkit.nextFactory');
+  // Share transports within a pending cache entry, independently of caller-specific processing.
+  const inFlightRequests = new WeakMap();
 
   class Directive {
     constructor(arg, body, options, hubkit) {
@@ -194,36 +196,29 @@ if (typeof require !== 'undefined') {
         ['GET', 'HEAD', 'OPTIONS', 'TRACE', 'PUT', 'DELETE'].includes(options.method);
       if (typeof options.idempotent === 'boolean') idempotent = options.idempotent;
 
-      let cachedItem = null, cacheKey;
+      let cachedItem = null, cacheKey, cacheEntry;
       const cacheable = options.cache && options.method === 'GET';
       if (cacheable) {
         // Pin cached value, in case it gets evicted during the request
         cacheKey = computeCacheKey(path, options);
-        cachedItem = checkCache(options, cacheKey);
-        if (cachedItem && (
+        cacheEntry = checkCache(options, cacheKey);
+        cachedItem = cacheEntry?.pending ? cacheEntry.cachedItem : cacheEntry;
+        if (cachedItem && !cacheEntry.pending && (
           options.immutable || options.stale ||
-          !options.fresh && (Date.now() < cachedItem.expiry || cachedItem.promise)
+          !options.fresh && Date.now() < cachedItem.expiry
         )) {
-          if (options.stats) {
-            if (cachedItem.promise) {
-              cachedItem.promise.then(() => {
-                const entry = options.cache.get(cacheKey);
-                options.stats.record(true, entry ? entry.size : 1);
-              }).catch(() => {
-                options.stats.record(true);
-              });
-            } else {
-              options.stats.record(true, cachedItem.size);
-            }
-          }
-          return cachedItem.promise ?
-            cachedItem.promise.then(value => attachFreshNext(value, this, options)) :
-            Promise.resolve(attachFreshNext(cachedItem.value, this, options));
+          if (options.stats) options.stats.record(true, cachedItem.size);
+          return attachFreshNext(cachedItem.value, this, options);
         }
+        if (!cacheEntry?.pending || options.fresh) {
+          cacheEntry = {pending: 0, cachedItem, size: 100};
+          options.cache.set(cacheKey, cacheEntry);
+        }
+        cacheEntry.pending++;
       }
 
       const requestPromise = new Promise((resolve, reject) => {
-        let result, tries = 0;
+        let result, tries = 0, shared = false;
         send(options.body, options._cause || 'initial');
 
         function handleError(error, res, status = res?.status) {
@@ -231,8 +226,7 @@ if (typeof require !== 'undefined') {
             [...res.headers].filter(([k]) => k !== 'authorization'));
           error.request = {method: options.method, url: path, headers};
           if (cacheable && res) {
-            options.cache.delete(cacheKey);
-            if (options.stats) options.stats.record(false);
+            if (options.stats) options.stats.record(shared);
           }
           const rateLimited = [403, 429].includes(status);
           if (rateLimited) {
@@ -251,7 +245,12 @@ if (typeof require !== 'undefined') {
             }
           }
           let value;
-          if (options.onError) value = options.onError(error);
+          try {
+            if (options.onError) value = options.onError(error);
+          } catch (e) {
+            reject(e);
+            return;
+          }
           if (value === undefined && idempotent) {
             if (error.networkFailure || [500, 502, 503, 504].includes(status)) {
               value = Hubkit.RETRY;
@@ -271,7 +270,6 @@ if (typeof require !== 'undefined') {
         }
 
         function retry() {
-          if (cacheable) cachedItem = checkCache(options, cacheKey);
           send(options.body, 'retry');
         }
 
@@ -294,7 +292,7 @@ if (typeof require !== 'undefined') {
               extractMetadata(cachedItem.headers, options.metadata);
               extractMetadata(res.headers, options.metadata);
               // Restore our in-flight entry without overwriting a newer concurrent request.
-              if (checkCache(options, cacheKey)?.promise === requestPromise) {
+              if (options.cache.get(cacheKey) === cacheEntry) {
                 options.cache.set(cacheKey, {...cachedItem, expiry: parseExpiry(res.headers)});
               }
               if (options.stats) options.stats.record(true, cachedItem.size);
@@ -305,10 +303,6 @@ if (typeof require !== 'undefined') {
                   res.data.message === 'Not Found'
               ) || res.data && res.data.errors
             ) {
-              if (cacheable) {
-                options.cache.delete(cacheKey);
-                if (options.stats) options.stats.record(false);
-              }
               let status = res.status;
               if (res.data && res.data.errors && res.status === 200) {
                 if (res.data.errors.every(error =>
@@ -324,8 +318,10 @@ if (typeof require !== 'undefined') {
                 else status = 400;
               }
               if (status === 404 && typeof options.ifNotFound !== 'undefined') {
+                if (cacheable && options.stats) options.stats.record(shared);
                 resolve(options.ifNotFound);
               } else if (status === 410 && typeof options.ifGone !== 'undefined') {
+                if (cacheable && options.stats) options.stats.record(shared);
                 resolve(options.ifGone);
               } else {
                 let errors = '';
@@ -515,16 +511,14 @@ if (typeof require !== 'undefined') {
                   rawData ? rawData.length || rawData.size || rawData.byteLength :
                   res.data ? res.data.size || res.data.byteLength :
                   1;
-                if (options.stats) options.stats.record(false, size);
-                if (res.status === 200 &&
+                if (options.stats) options.stats.record(shared, size);
+                if (options.cache.get(cacheKey) === cacheEntry && res.status === 200 &&
                     (res.headers.get('etag') || res.headers.get('cache-control')) &&
                     size <= options.cache.maxSize * options.maxItemSizeRatio) {
                   options.cache.set(cacheKey, {
                     value: result, eTag: res.headers.get('etag'), status: res.status,
                     headers: res.headers, size, expiry: parseExpiry(res.headers)
                   });
-                } else {
-                  options.cache.delete(cacheKey);
                 }
               }
               resolve(result);
@@ -551,12 +545,15 @@ if (typeof require !== 'undefined') {
         async function send(body, cause) {
           tries++;
           try {
-            const timeout = options.onSend && await options.onSend(cause) || options.timeout;
+            const timeout = await options.onSend?.(cause) ?? options.timeout;
+            if (timeout === 0) {
+              onError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+              return;
+            }
             let rawData;
             const config = {
               url: path,
               method: options.method,
-              timeout,
               params: {},
               headers: {}
             };
@@ -575,17 +572,42 @@ if (typeof require !== 'undefined') {
                 config.body = body;
               }
             }
-            let received = false;
             try {
-              const res = await fetchResponse(config, options);
-              rawData = res.rawData;
-              received = true;
-              const api = detectApi(path);
-              const cost = api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
-              if (options.onReceive) options.onReceive({api, cost});
+              let flights, requestKey;
+              if (cacheable) {
+                flights = inFlightRequests.get(cacheEntry);
+                if (!flights) inFlightRequests.set(cacheEntry, flights = new Map());
+                // cacheKey identifies the whole result; path/body can change between pages.
+                requestKey = computeCacheKey(path, options) + '\n' + JSON.stringify(config.headers);
+              }
+              let flight = !options.fresh && flights?.get(requestKey);
+              shared = !!flight;
+              if (!flight) {
+                flight = {
+                  controller: new AbortController(), users: new Set(), settled: false, cachedItem,
+                  remove() {
+                    if (flights?.get(requestKey) === flight) flights.delete(requestKey);
+                  }
+                };
+                flight.promise = fetchResponse(config, options, flight)
+                  .finally(() => {
+                    flight.settled = true;
+                    flight.remove();
+                  });
+                if (flights) flights.set(requestKey, flight);
+              }
+              const response = await waitForResponse(flight, timeout, options.metadata);
+              // Reuse the transport's parse for its caller; joiners need independent mutable data.
+              rawData = response.rawData;
+              const res = {
+                ...response, rawData,
+                data: shared ?
+                  parseResponseData(rawData, response.headers, options, response.status) :
+                  response.data
+              };
+              if (res.status === 304) cachedItem = flight.cachedItem;
               onComplete(res, rawData);
             } catch (e) {
-              if (options.onReceive && !received) options.onReceive();
               onError(e);
             }
           } catch (error) {
@@ -594,7 +616,14 @@ if (typeof require !== 'undefined') {
         }
       });
 
-      if (cacheable) options.cache.set(cacheKey, {promise: requestPromise, size: 100});
+      if (cacheable) {
+        return requestPromise.finally(() => {
+          // Keep the pending entry while another caller is still processing the same request.
+          if (!--cacheEntry.pending && options.cache.get(cacheKey) === cacheEntry) {
+            options.cache.delete(cacheKey);
+          }
+        });
+      }
       return requestPromise;
     }
 
@@ -754,42 +783,80 @@ if (typeof require !== 'undefined') {
     /* eslint-enable dot-notation */
   }
 
-  async function fetchResponse(config, options) {
-    const init = {method: config.method, headers: config.headers};
+  async function waitForResponse(flight, timeout, metadata) {
+    const user = {metadata};
+    flight.users.add(user);
+    let timeoutId;
+    try {
+      if (metadata && flight.quota) {
+        const {values, timestampKey} = flight.quota;
+        // A late joiner observes the original headers without refreshing or regressing quota.
+        if (!(metadata[timestampKey] >= values[timestampKey])) Object.assign(metadata, values);
+      }
+      let promise = flight.promise;
+      if (timeout) {
+        const expired = new Promise((resolve, reject) => {
+          timeoutId = setTimeout(() => {
+            const error =
+              new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+            error.networkFailure = true;
+            reject(error);
+          }, timeout);
+        });
+        promise = Promise.race([promise, expired]);
+      }
+      return await promise;
+    } catch (error) {
+      // Callers annotate errors and choose independent recovery/retry policies.
+      const copy = error instanceof DOMException ?
+        new DOMException(error.message, error.name) : Object.create(Object.getPrototypeOf(error));
+      Object.defineProperties(copy, Object.getOwnPropertyDescriptors(error));
+      throw copy;
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      flight.users.delete(user);
+      if (!flight.users.size && !flight.settled) {
+        flight.remove();
+        flight.controller.abort();
+      }
+    }
+  }
+
+  async function fetchResponse(config, options, flight) {
+    const init = {method: config.method, headers: config.headers, signal: flight.controller.signal};
     if (config.body) {
       init.body = JSON.stringify(config.body);
       init.headers['Content-Type'] = 'application/json';
     }
     const url = new URL(config.url);
     for (const key in config.params) url.searchParams.set(key, config.params[key]);
-    let timeoutId;
-    if (config.timeout) {
-      // TODO: Switch to AbortSignal.timeout once widely supported.
-      const controller = new AbortController();
-      init.signal = controller.signal;
-      timeoutId = setTimeout(() => {
-        controller.abort(
-          new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
-      }, config.timeout);
-    }
-    let response, rawData;
+    const startTimestamp = Date.now();
+    let response, rawData, call;
     try {
-      response = await fetch(url, init);
-      // Record quota in header-arrival order, before slow or failing body reads can reorder it.
-      extractQuotaMetadata(config.url, response.headers, options.metadata);
-      rawData = await readResponseBody(response, options);
-    } catch (error) {
-      error.networkFailure = true;
-      throw error;
+      try {
+        response = await fetch(url, init);
+        // Record quota in header-arrival order, before slow or failing body reads can reorder it.
+        flight.quota = extractQuotaMetadata(config.url, response.headers);
+        if (flight.quota) {
+          for (const {metadata} of flight.users) {
+            if (metadata) Object.assign(metadata, flight.quota.values);
+          }
+        }
+        rawData = await readResponseBody(response, options);
+      } catch (error) {
+        error.networkFailure = true;
+        throw error;
+      }
+      const api = detectApi(config.url);
+      call = {api, cost: api === 'graph' ? undefined : 1};
+      const data = parseResponseData(rawData, response.headers, options, response.status);
+      if (api === 'graph') call.cost = data?.data?.rateLimit?.cost;
+      return {status: response.status, headers: response.headers, rawData, data};
     } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+      // The initiating callback belongs to the transport, even after its caller times out.
+      // A callback exception rejects this fetch for every caller still waiting.
+      options.onReceive?.(call, Date.now() - startTimestamp);
     }
-    return {
-      status: response.status,
-      headers: response.headers,
-      data: parseResponseData(rawData, response.headers, options, response.status),
-      rawData
-    };
   }
 
   function readResponseBody(response, options) {
@@ -817,8 +884,8 @@ if (typeof require !== 'undefined') {
     return rawData;
   }
 
-  function extractQuotaMetadata(path, headers, metadata) {
-    if (!(headers && metadata)) return;
+  function extractQuotaMetadata(path, headers) {
+    if (!headers) return;
     const timestamp = Date.now();
     const resource = headers.get('x-ratelimit-resource');
     const api = resource === 'graphql' ? 'graph' : resource || detectApi(path);
@@ -835,7 +902,8 @@ if (typeof require !== 'undefined') {
       }
       if (Object.values(quota).some(value => value !== undefined)) {
         // Keep each observation together: missing fields must not inherit an older quota window.
-        Object.assign(metadata, quota, {[`${rateName}Timestamp`]: timestamp});
+        const timestampKey = `${rateName}Timestamp`;
+        return {values: {...quota, [timestampKey]: timestamp}, timestampKey};
       }
     }
   }
