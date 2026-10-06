@@ -78,6 +78,33 @@ for (const environment of ['Node', 'browser']) {
     assert.equal(requests(), 6);
   });
 
+  for (const useGraph of [false, true]) {
+    for (const [document, idempotent, attempts] of [
+      [fragmentQuery, true, 2], [query, false, 1], [query, undefined, 2]
+    ]) {
+      test(`${environment}: ${useGraph ? 'graph' : 'request'} onRequest idempotent=${idempotent}`,
+        async () => {
+          const {Hubkit, requests} = createHubkit(environment, 'graphql');
+          let callbacks = 0;
+          const options = Object.freeze({
+            body: Object.freeze({query: document}),
+            async onRequest(requestOptions) {
+              callbacks++;
+              await Promise.resolve();
+              requestOptions.idempotent = idempotent;
+            }
+          });
+          const gh = new Hubkit({idempotent: idempotent === false, maxTries: 2});
+          await assert.rejects(useGraph ? gh.graph(document, options) :
+            gh.request('POST /graphql', options));
+          assert.equal(requests(), attempts);
+          assert.equal(callbacks, 1);
+          assert.equal(gh.defaultOptions.idempotent, idempotent === false);
+          assert.equal('idempotent' in options, false);
+        });
+    }
+  }
+
   for (const path of ['/repos/o/r/issues', '/graphql']) {
     test(`${environment}: ${path} body.idempotent remains ordinary payload data`, async () => {
       const {Hubkit, requests, sentBodies} = createHubkit(environment, 'server');

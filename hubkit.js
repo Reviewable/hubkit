@@ -619,6 +619,7 @@ if (typeof require !== 'undefined') {
           /\bquery\s*(?:\([\s\S]*?\))?\s*\{/, match => match + 'rateLimit {cost, remaining} ');
       }
       const postOptions = defaults({body: {query}}, options);
+      postOptions.idempotent = fullOptions.idempotent;
       delete postOptions.onRequest;
       postOptions.host =
         options.graphHost || options.host || this.defaultOptions.graphHost ||
