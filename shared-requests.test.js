@@ -7,10 +7,10 @@ const test = require('node:test');
 const {setImmediate} = require('node:timers');
 const vm = require('node:vm');
 
-function createHubkit(environment, fetch) {
+function createHubkit(environment, fetch, globals = {}) {
   const context = {
     self: {}, lrucache: require('lru-cache'), URL, AbortController, DOMException, Date,
-    setTimeout, clearTimeout, fetch
+    setTimeout, clearTimeout, fetch, ...globals
   };
   if (environment === 'Node') Object.assign(context, {process, module: {exports: {}}});
   vm.runInNewContext(readFileSync(require.resolve('./hubkit.js'), 'utf8'), context);
@@ -25,12 +25,30 @@ function json(value, status = 200, headers = {}) {
 }
 
 for (const environment of ['Node', 'browser']) {
+  for (const api of ['core', 'graph']) {
+    test(`${environment}: unshared ${api} responses parse only once with onReceive`, async t => {
+      const parse = t.mock.fn(JSON.parse);
+      const fetch = t.mock.fn(async () => json(api === 'graph' ?
+        {data: {viewer: {login: 'user'}, rateLimit: {cost: 3}}} : {login: 'user'}));
+      const hubkit = createHubkit(environment, fetch, {JSON: {parse, stringify: JSON.stringify}});
+      const onReceive = t.mock.fn();
+      const result = api === 'graph' ?
+        await hubkit.graph('query { viewer { login } }', {onReceive}) :
+        await hubkit.request('/user', {onReceive});
+      assert.equal((api === 'graph' ? result.viewer : result).login, 'user');
+      assert.equal(parse.mock.callCount(), 1);
+      assert.equal(onReceive.mock.callCount(), 1);
+      assert.equal(onReceive.mock.calls[0].arguments[0].cost, api === 'graph' ? 3 : 1);
+    });
+  }
+
   test(`${environment}: shared callers prepare separately and receive isolated data and metadata`,
     async t => {
       const fetch = t.mock.fn(async () => json({items: [1]}, 200, {
         'x-ratelimit-remaining': '42', 'cache-control': 'max-age=60'
       }));
-      const hubkit = createHubkit(environment, fetch);
+      const parse = t.mock.fn(JSON.parse);
+      const hubkit = createHubkit(environment, fetch, {JSON: {parse, stringify: JSON.stringify}});
       const callbacks = [0, 1].map(() => ({
         onRequest: t.mock.fn(), onSend: t.mock.fn(async () => 1000),
         onReceive: t.mock.fn(), metadata: {}
@@ -38,6 +56,7 @@ for (const environment of ['Node', 'browser']) {
       const values = await Promise.all(callbacks.map(options =>
         hubkit.request('/shared', options)));
       assert.equal(fetch.mock.callCount(), 1);
+      assert.equal(parse.mock.callCount(), 2);
       assert.equal(hubkit.defaultOptions.stats.hitRate, 0.5);
       assert.equal(hubkit.defaultOptions.stats.hitSizeRate, 0.5);
       for (const [i, options] of callbacks.entries()) {

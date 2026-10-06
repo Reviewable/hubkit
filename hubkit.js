@@ -597,11 +597,13 @@ if (typeof require !== 'undefined') {
                 if (flights) flights.set(requestKey, flight);
               }
               const response = await waitForResponse(flight, timeout, options.metadata);
-              // Each caller parses its own data: pagination and error handlers may mutate it.
+              // Reuse the transport's parse for its caller; joiners need independent mutable data.
               rawData = response.rawData;
               const res = {
                 ...response, rawData,
-                data: parseResponseData(rawData, response.headers, options, response.status)
+                data: shared ?
+                  parseResponseData(rawData, response.headers, options, response.status) :
+                  response.data
               };
               if (res.status === 304) cachedItem = flight.cachedItem;
               onComplete(res, rawData);
@@ -845,14 +847,13 @@ if (typeof require !== 'undefined') {
         error.networkFailure = true;
         throw error;
       }
+      const data = parseResponseData(rawData, response.headers, options, response.status);
       if (options.onReceive) {
         const api = detectApi(config.url);
-        const data = api === 'graph' ?
-          parseResponseData(rawData, response.headers, options, response.status) : undefined;
         const cost = api === 'graph' ? data?.data?.rateLimit?.cost : 1;
         call = {api, cost};
       }
-      return {status: response.status, headers: response.headers, rawData};
+      return {status: response.status, headers: response.headers, rawData, data};
     } finally {
       // The initiating callback belongs to the transport, even after its caller times out.
       // A callback exception rejects this fetch for every caller still waiting.
