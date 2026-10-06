@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const source = readFileSync(require.resolve('./hubkit.js'), 'utf8');
 const query = 'query Read { viewer { login } }';
 const mutation = 'mutation Write { createIssue(input: {}) { issue { id } } }';
+const fragmentQuery = 'fragment F on User { login } query { viewer { ...F } }';
 const partialFailure = {
   data: {createIssue: {issue: {id: 'created'}}},
   errors: [{message: 'Something went wrong'}]
@@ -15,11 +16,13 @@ const partialFailure = {
 
 function createHubkit(environment, failure) {
   let requests = 0;
+  const sentBodies = [];
   const runtime = {
     self: {}, module: {}, lrucache: require('lru-cache'), URL, AbortController,
     setTimeout, clearTimeout,
-    fetch: async () => {
+    fetch: async (url, init) => {
       requests++;
+      sentBodies.push(init.body ? JSON.parse(init.body) : Object.fromEntries(url.searchParams));
       if (failure === 'network') throw new Error('Connection closed');
       return new globalThis.Response(JSON.stringify(failure === 'graphql' ? partialFailure : {}), {
         status: failure === 'server' ? 503 : failure === 'quota' ? 403 : 200,
@@ -31,10 +34,57 @@ function createHubkit(environment, failure) {
     runtime.process = {versions: {node: globalThis.process.versions.node}};
   }
   vm.runInNewContext(source, runtime);
-  return {Hubkit: runtime.module.exports || runtime.self.Hubkit, requests: () => requests};
+  return {
+    Hubkit: runtime.module.exports || runtime.self.Hubkit, requests: () => requests, sentBodies
+  };
 }
 
 for (const environment of ['Node', 'browser']) {
+  for (const useGraph of [false, true]) {
+    for (const [document, idempotent, attempts] of [
+      [fragmentQuery, true, 2], [query, false, 1], [fragmentQuery, 'true', 1]
+    ]) {
+      test(`${environment}: ${useGraph ? 'graph' : 'request'} flag ${JSON.stringify(idempotent)}`,
+        async () => {
+          const {Hubkit, requests, sentBodies} = createHubkit(environment, 'graphql');
+          const body = Object.freeze({idempotent});
+          const options = {body, maxTries: 2};
+          const gh = new Hubkit();
+          await assert.rejects(useGraph ? gh.graph(document, options) :
+            gh.request('POST /graphql', {...options, body: {query: document, ...body}}));
+          assert.equal(requests(), attempts);
+          for (const sentBody of sentBodies) {
+            assert.equal(sentBody.query, document);
+            assert.equal('idempotent' in sentBody, false);
+          }
+          assert.equal(body.idempotent, idempotent);
+        });
+    }
+  }
+
+  test(`${environment}: graph preserves scoped and per-call overrides`, async () => {
+    const {Hubkit, requests} = createHubkit(environment, 'graphql');
+    const gh = new Hubkit({body: {idempotent: true}, maxTries: 2});
+    await assert.rejects(gh.graph(fragmentQuery));
+    assert.equal(requests(), 2);
+    await assert.rejects(gh.graph(fragmentQuery, {body: {idempotent: false}}));
+    assert.equal(requests(), 3);
+    await assert.rejects(gh.graph(fragmentQuery, {onError: () => Hubkit.DONT_RETRY}));
+    assert.equal(requests(), 4);
+    await assert.rejects(gh.graph(query, {
+      body: {idempotent: false}, onError: () => Hubkit.RETRY
+    }));
+    assert.equal(requests(), 6);
+  });
+
+  test(`${environment}: REST body.idempotent remains ordinary payload data`, async () => {
+    const {Hubkit, requests, sentBodies} = createHubkit(environment, 'server');
+    const body = {idempotent: true};
+    await assert.rejects(new Hubkit().request('POST /repos/o/r/issues', {body}));
+    assert.equal(requests(), 1);
+    assert.deepEqual(sentBodies, [body]);
+  });
+
   for (const failure of ['server', 'network', 'quota']) {
     for (const method of ['GET', 'HEAD', 'OPTIONS', 'TRACE', 'PUT', 'DELETE', 'POST', 'PATCH']) {
       test(`${environment}: ${method} ${failure} retries follow HTTP idempotency`, async () => {

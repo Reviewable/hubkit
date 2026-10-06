@@ -45,6 +45,7 @@ interface Options {
   host?: string;
   graphHost?: string;
   pathPattern?: string;
+  /** GraphQL body.idempotent overrides automatic retry inference; it is not sent to GitHub. */
   body?: any;
   media?: string;
   ifNotFound?: any;

@@ -190,8 +190,11 @@ if (typeof require !== 'undefined') {
       path = interpolatePath(path, options);
       const graph = detectApi(path) === 'graph';
       const graphQuery = graph && isGraphQuery(options.body);
-      const idempotent = graph ? graphQuery :
+      let idempotent = graph ? graphQuery :
         ['GET', 'HEAD', 'OPTIONS', 'TRACE', 'PUT', 'DELETE'].includes(options.method);
+      if (graph && typeof options.body?.idempotent === 'boolean') {
+        idempotent = options.body.idempotent;
+      }
 
       let cachedItem = null, cacheKey;
       const cacheable = options.cache && options.method === 'GET';
@@ -568,8 +571,13 @@ if (typeof require !== 'undefined') {
             if (cause === 'page' || options._cause === 'page') config.params = {};
 
             if (body) {
-              if (options.method === 'GET') config.params = Object.assign(config.params, body);
-              else config.body = body;
+              const requestBody = graph ? {...body} : body;
+              if (graph) delete requestBody.idempotent;
+              if (options.method === 'GET') {
+                config.params = Object.assign(config.params, requestBody);
+              } else {
+                config.body = requestBody;
+              }
             }
             let received = false;
             try {
@@ -614,7 +622,7 @@ if (typeof require !== 'undefined') {
         query = query.replace(
           /\bquery\s*(?:\([\s\S]*?\))?\s*\{/, match => match + 'rateLimit {cost, remaining} ');
       }
-      const postOptions = defaults({body: {query}}, options);
+      const postOptions = defaults({body: {...fullOptions.body, query}}, options);
       delete postOptions.onRequest;
       postOptions.host =
         options.graphHost || options.host || this.defaultOptions.graphHost ||
