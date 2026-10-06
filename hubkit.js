@@ -607,8 +607,13 @@ if (typeof require !== 'undefined') {
               if (res.status === 304) cachedItem = flight.cachedItem;
               received = true;
               const api = detectApi(path);
-              const cost = shared ? 0 : api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
-              if (options.onReceive) options.onReceive({api, cost}, shared);
+              if (options.onReceive) {
+                // Charge the first response callback, even if the initiating caller timed out.
+                const cost = flight.costReported ?
+                  0 : api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
+                flight.costReported = true;
+                options.onReceive({api, cost}, shared);
+              }
               onComplete(res, rawData);
             } catch (e) {
               if (options.onReceive && !received) options.onReceive(undefined, shared);

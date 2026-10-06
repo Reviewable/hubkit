@@ -85,6 +85,7 @@ interface Options {
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
   // Returns a timeout; zero invokes onError immediately, nullish results retain the options timeout.
   onSend?(cause: 'initial' | 'retry' | 'page'): OnSendResult | Promise<OnSendResult>;
+  // The first callback receiving a fetch's response reports its cost, even if shared is true.
   onReceive?(call?: {api: 'core' | 'graph' | 'search', cost: number | undefined}, shared?: boolean): void;
   onError?(error: Error & {
     status?: number,
