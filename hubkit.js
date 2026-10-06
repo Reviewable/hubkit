@@ -542,6 +542,25 @@ if (typeof require !== 'undefined') {
           handleError(error);
         }
 
+        function onReceive(call, flight) {
+          if (!options.onReceive) return;
+          let timing;
+          if (flight?.endTimestamp !== undefined && !flight.timingReported) {
+            flight.timingReported = true;
+            timing = {
+              startTimestamp: flight.startTimestamp,
+              latency: flight.endTimestamp - flight.startTimestamp
+            };
+          }
+          if (call) {
+            // Claim cost and timing before the callback, even if it throws or joined the fetch.
+            if (flight.costReported) call.cost = 0;
+            flight.costReported = true;
+          }
+          if (timing) options.onReceive(call, shared, timing);
+          else options.onReceive(call, shared);
+        }
+
         async function send(body, cause) {
           tries++;
           try {
@@ -572,7 +591,7 @@ if (typeof require !== 'undefined') {
                 config.body = body;
               }
             }
-            let received = false;
+            let received = false, flight;
             try {
               let flights, requestKey;
               if (cacheable) {
@@ -581,17 +600,19 @@ if (typeof require !== 'undefined') {
                 // cacheKey identifies the whole result; path/body can change between pages.
                 requestKey = computeCacheKey(path, options) + '\n' + JSON.stringify(config.headers);
               }
-              let flight = !options.fresh && flights?.get(requestKey);
+              flight = !options.fresh && flights?.get(requestKey);
               shared = !!flight;
               if (!flight) {
                 flight = {
                   controller: new AbortController(), users: new Set(), settled: false, cachedItem,
+                  startTimestamp: Date.now(),
                   remove() {
                     if (flights?.get(requestKey) === flight) flights.delete(requestKey);
                   }
                 };
                 flight.promise = fetchResponse(config, options, flight)
                   .finally(() => {
+                    flight.endTimestamp ??= Date.now();
                     flight.settled = true;
                     flight.remove();
                   });
@@ -607,16 +628,11 @@ if (typeof require !== 'undefined') {
               if (res.status === 304) cachedItem = flight.cachedItem;
               received = true;
               const api = detectApi(path);
-              if (options.onReceive) {
-                // Charge the first response callback, even if the initiating caller timed out.
-                const cost = flight.costReported ?
-                  0 : api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
-                flight.costReported = true;
-                options.onReceive({api, cost}, shared);
-              }
+              const cost = api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
+              onReceive({api, cost}, flight);
               onComplete(res, rawData);
             } catch (e) {
-              if (options.onReceive && !received) options.onReceive(undefined, shared);
+              if (!received) onReceive(undefined, flight);
               onError(e);
             }
           } catch (error) {
@@ -825,6 +841,7 @@ if (typeof require !== 'undefined') {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       flight.users.delete(user);
       if (!flight.users.size && !flight.settled) {
+        flight.endTimestamp = Date.now();
         flight.remove();
         flight.controller.abort();
       }
