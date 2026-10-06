@@ -431,6 +431,29 @@ for (const environment of ['Node', 'browser']) {
     });
   }
 
+  for (const maxTries of [1, 2]) {
+    test(`${environment}: shared rejected 500 responses count reuse across ${maxTries} attempts`,
+      async t => {
+        const fetch = t.mock.fn(async () => json({message: 'Server error'}, 500));
+        const hubkit = createHubkit(environment, fetch);
+        const results = await Promise.allSettled([
+          hubkit.request('/shared-failure', {maxTries}),
+          hubkit.request('/shared-failure', {maxTries})
+        ]);
+        for (const result of results) {
+          assert.equal(result.status, 'rejected');
+          assert.equal(result.reason.status, 500);
+        }
+        const stats = hubkit.defaultOptions.stats;
+        assert.equal(fetch.mock.callCount(), maxTries);
+        assert.equal(stats.hits, maxTries);
+        assert.equal(stats.misses, maxTries);
+        assert.equal(stats.hitRate, 0.5);
+        assert.equal(stats.hitSizeRate, 0.5);
+        assert.equal(hubkit.defaultOptions.cache.size, 0);
+      });
+  }
+
   test(`${environment}: shared ArrayBuffer responses reuse the original buffer`, async t => {
     const buffer = new Uint8Array([1, 2, 3]).buffer;
     const arrayBuffer = t.mock.fn(async () => buffer);

@@ -42,6 +42,15 @@ export type Identified403Error = ({
 
 type OnSendResult = number | null | void;
 
+interface CachedResponse {
+  value: any;
+  eTag?: string;
+  status: number;
+  headers: any;
+  size: number;
+  expiry?: number;
+}
+
 export interface Options {
   method?: string;
   host?: string;
@@ -69,8 +78,7 @@ export interface Options {
   stats?: Stats;
   cache?: LRUCache<
     string,
-    {pending: number, size: number} |
-    {value: any, eTag?: string, status: number, headers: any, size: number, expiry?: number}
+    {pending: number, cachedItem?: CachedResponse, size: number} | CachedResponse
   > | null;
   userAgent?: string;
   autoQueryRateLimit?: boolean;
