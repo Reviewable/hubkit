@@ -47,43 +47,57 @@ for (const environment of ['Node', 'browser']) {
       test(`${environment}: ${useGraph ? 'graph' : 'request'} flag ${JSON.stringify(idempotent)}`,
         async () => {
           const {Hubkit, requests, sentBodies} = createHubkit(environment, 'graphql');
-          const body = Object.freeze({idempotent});
-          const options = {body, maxTries: 2};
+          const body = Object.freeze({query: document});
+          const options = Object.freeze({idempotent, body, maxTries: 2});
           const gh = new Hubkit();
           await assert.rejects(useGraph ? gh.graph(document, options) :
-            gh.request('POST /graphql', {...options, body: {query: document, ...body}}));
+            gh.request('POST /graphql', options));
           assert.equal(requests(), attempts);
           for (const sentBody of sentBodies) {
             assert.equal(sentBody.query, document);
             assert.equal('idempotent' in sentBody, false);
           }
-          assert.equal(body.idempotent, idempotent);
+          assert.equal(options.idempotent, idempotent);
+          assert.equal(body.query, document);
         });
     }
   }
 
   test(`${environment}: graph preserves scoped and per-call overrides`, async () => {
     const {Hubkit, requests} = createHubkit(environment, 'graphql');
-    const gh = new Hubkit({body: {idempotent: true}, maxTries: 2});
+    const gh = new Hubkit({idempotent: true, maxTries: 2});
     await assert.rejects(gh.graph(fragmentQuery));
     assert.equal(requests(), 2);
-    await assert.rejects(gh.graph(fragmentQuery, {body: {idempotent: false}}));
+    await assert.rejects(gh.graph(fragmentQuery, {idempotent: false}));
     assert.equal(requests(), 3);
     await assert.rejects(gh.graph(fragmentQuery, {onError: () => Hubkit.DONT_RETRY}));
     assert.equal(requests(), 4);
     await assert.rejects(gh.graph(query, {
-      body: {idempotent: false}, onError: () => Hubkit.RETRY
+      idempotent: false, onError: () => Hubkit.RETRY
     }));
     assert.equal(requests(), 6);
   });
 
-  test(`${environment}: REST body.idempotent remains ordinary payload data`, async () => {
-    const {Hubkit, requests, sentBodies} = createHubkit(environment, 'server');
-    const body = {idempotent: true};
-    await assert.rejects(new Hubkit().request('POST /repos/o/r/issues', {body}));
-    assert.equal(requests(), 1);
-    assert.deepEqual(sentBodies, [body]);
-  });
+  for (const path of ['/repos/o/r/issues', '/graphql']) {
+    test(`${environment}: ${path} body.idempotent remains ordinary payload data`, async () => {
+      const {Hubkit, requests, sentBodies} = createHubkit(environment, 'server');
+      const body = Object.freeze({idempotent: true});
+      await assert.rejects(new Hubkit().request(`POST ${path}`, {body, maxTries: 2}));
+      assert.equal(requests(), 1);
+      assert.deepEqual(sentBodies, [body]);
+    });
+  }
+
+  for (const [method, idempotent, attempts] of [['POST', true, 2], ['GET', false, 1]]) {
+    test(`${environment}: ${method} honors top-level idempotent=${idempotent}`, async () => {
+      const {Hubkit, requests, sentBodies} = createHubkit(environment, 'server');
+      await assert.rejects(new Hubkit().request(`${method} /repos/o/r/issues`, {
+        idempotent, maxTries: 2
+      }));
+      assert.equal(requests(), attempts);
+      assert.ok(sentBodies.every(body => !('idempotent' in body)));
+    });
+  }
 
   for (const failure of ['server', 'network', 'quota']) {
     for (const method of ['GET', 'HEAD', 'OPTIONS', 'TRACE', 'PUT', 'DELETE', 'POST', 'PATCH']) {

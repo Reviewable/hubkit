@@ -200,27 +200,27 @@ This also applies to handlers that recover from an HTTP error by returning a val
 
 Automatic retries for network failures, server errors, and rate limits are restricted to idempotent
 operations: REST `GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, and `DELETE`, plus recognized GraphQL queries.
-REST `POST`/`PATCH` requests and GraphQL mutations are not retried automatically, including mutations
-that return partial data alongside errors. Return `Hubkit.RETRY` from `onError` to explicitly retry
-an operation when the caller knows it is safe; `maxTries` still applies.
+By default, REST `POST`/`PATCH` requests and GraphQL mutations are not retried automatically, including
+mutations that return partial data alongside errors. Return `Hubkit.RETRY` from `onError` to
+explicitly retry an operation when the caller knows it is safe; `maxTries` still applies.
 
 GraphQL detection conservatively recognizes a leading `query` keyword or shorthand `{`, skipping
 comments, whitespace, BOMs, and commas. If `body.operationName` is supplied, it must match the leading
 query's name. Documents starting with fragments or descriptions, or selecting a later operation,
 require an explicit retry decision. This same classification controls the error's `method` attribute.
 
-For GraphQL requests, `body.idempotent: true` enables the usual automatic retries when the caller
-knows the operation is idempotent, including queries starting with fragments. Set it to `false` to
-disable automatic retries for a recognized query. Only boolean values override the inference, and
-`onError` still takes precedence. The flag is local to Hubkit: it is removed from the outgoing
-GraphQL body without changing the caller's object. For example:
+The top-level `idempotent: true` option enables the usual automatic retries when the caller knows
+the operation is idempotent, including GraphQL queries starting with fragments. Set it to `false` to
+disable automatic retries for an otherwise recognized idempotent operation. Only boolean values
+override the inference, and `onError` still takes precedence. The option is local to Hubkit and is
+not sent to GitHub. For example:
 
 ```js
-await gh.graph(fragmentFirstQuery, {body: {idempotent: true}, variables});
+await gh.graph(fragmentFirstQuery, {idempotent: true, variables});
 ```
 
-The flag also works with `request('POST /graphql', {body: {query, idempotent: true}})` and scoped
-defaults. It controls retries without changing `error.method` or the classification of REST requests.
+The flag also works with `request('POST /graphql', {idempotent: true, body: {query}})`, REST requests,
+and scoped defaults. It controls retries without changing `error.method`.
 
 #### Options reference
 
@@ -250,6 +250,7 @@ content.  Valid values are:
   * for blobs: `json` (default), `raw`
   * for commits, etc.: `diff`, `patch`
 * `body`: The contents of the request to send, typically a JSON-friendly object.
+* `idempotent`: A boolean overriding whether the operation is eligible for automatic retries. Applies to REST and GraphQL requests; inferred from the HTTP method or GraphQL document when omitted. `onError` takes precedence.
 * `variables`: For GraphQL queries, variables to pass to the server along with the query.
 * `autoQueryRateLimit`: For GraphQL queries, whether to inject a `rateLimit {cost, remaining}` property into every query.  This is used to figure out the cost information passed to `onReceive` (see below).
 * `responseType`: The response type if you want to receive raw data; one of `text`, `arraybuffer`, or `blob`.  Only useful when fetching file blobs.  Applies to successful responses only; HTTP error responses ignore this option (see [HTTP error bodies](#http-error-bodies-breaking-change-in-900)).
