@@ -9,7 +9,7 @@ const vm = require('node:vm');
 
 function createHubkit(environment, fetch) {
   const context = {
-    self: {}, lrucache: require('lru-cache'), URL, AbortController, DOMException,
+    self: {}, lrucache: require('lru-cache'), URL, AbortController, DOMException, Date,
     setTimeout, clearTimeout, fetch
   };
   if (environment === 'Node') Object.assign(context, {process, module: {exports: {}}});
@@ -53,6 +53,73 @@ for (const environment of ['Node', 'browser']) {
       values[0].items.push(2);
       assert.equal(values[1].items.length, 1);
     });
+
+  for (const bodyFails of [false, true]) {
+    test(`${environment}: shared quota arrives before the body ${bodyFails ? 'fails' : 'finishes'}`,
+      async t => {
+        let now = 1000;
+        t.mock.method(Date, 'now', () => now);
+        const headersReady = Promise.withResolvers();
+        const bodyReady = Promise.withResolvers();
+        const fetch = t.mock.fn(() => headersReady.promise);
+        const hubkit = createHubkit(environment, fetch);
+        const metadata = [{}, {}, {}];
+        const calls = metadata.slice(0, 2).map(value => hubkit.request('/quota-body', {
+          metadata: value, maxTries: 1,
+          onError() {assert.equal(value.rateLimitRemaining, 42);}
+        }));
+        const response = json({ok: true}, 200, {'x-ratelimit-remaining': '42'});
+        response.text = () => bodyReady.promise;
+        headersReady.resolve(response);
+        await new Promise(setImmediate);
+        for (const value of metadata.slice(0, 2)) {
+          assert.equal(value.rateLimitRemaining, 42);
+          assert.equal(value.rateLimitTimestamp, 1000);
+        }
+        now = 2000;
+        calls.push(hubkit.request('/quota-body', {metadata: metadata[2], maxTries: 1}));
+        const results = Promise.allSettled(calls);
+        await new Promise(setImmediate);
+        assert.equal(metadata[2].rateLimitRemaining, 42);
+        assert.equal(metadata[2].rateLimitTimestamp, 1000);
+        if (bodyFails) bodyReady.reject(new Error('Body failed'));
+        else bodyReady.resolve('{"ok":true}');
+        for (const result of await results) {
+          if (bodyFails) assert.match(result.reason.message, /Body failed/);
+          else assert.equal(result.value.ok, true);
+        }
+        for (const value of metadata) assert.equal(value.rateLimitTimestamp, 1000);
+        assert.equal(fetch.mock.callCount(), 1);
+      });
+  }
+
+  test(`${environment}: joining after headers cannot replace newer quota metadata`, async t => {
+    let now = 1000;
+    t.mock.method(Date, 'now', () => now);
+    const bodyReady = Promise.withResolvers();
+    const fetch = t.mock.fn(async url => {
+      const response = json({}, 200, {
+        'x-ratelimit-remaining': url.pathname === '/older' ? '42' : '41'
+      });
+      if (url.pathname === '/older') response.text = () => bodyReady.promise;
+      return response;
+    });
+    const hubkit = createHubkit(environment, fetch);
+    const original = hubkit.request('/older');
+    await new Promise(setImmediate);
+    now = 2000;
+    const metadata = {};
+    await hubkit.request('/newer', {metadata});
+    const joining = hubkit.request('/older', {metadata});
+    await new Promise(setImmediate);
+    assert.equal(metadata.rateLimitRemaining, 41);
+    assert.equal(metadata.rateLimitTimestamp, 2000);
+    bodyReady.resolve('{}');
+    await Promise.all([original, joining]);
+    assert.equal(metadata.rateLimitRemaining, 41);
+    assert.equal(metadata.rateLimitTimestamp, 2000);
+    assert.equal(fetch.mock.callCount(), 2);
+  });
 
   for (const outcome of ['zero', 'throw', 'positive']) {
     test(`${environment}: an async joining onSend can return ${outcome} independently`, async t => {

@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const {readFileSync} = require('node:fs');
 const test = require('node:test');
+const {setImmediate} = require('node:timers');
 const vm = require('node:vm');
 
 const NOW = 1_800_000_000_000;
@@ -18,7 +19,7 @@ function quotaHeaders(resource = 'core', remaining = 4500) {
 function createHubkit(responses) {
   const state = {now: NOW, requests: []};
   const browser = {
-    self: {}, lrucache: require('lru-cache'), URL, AbortController,
+    self: {}, lrucache: require('lru-cache'), URL, AbortController, DOMException,
     Date: class extends Date { static now() {return state.now;} },
     setTimeout: (...args) => setTimeout(...args),
     clearTimeout: (...args) => clearTimeout(...args),
@@ -291,6 +292,7 @@ test('a delayed 304 cannot overwrite a newer concurrent response in the cache', 
   const gh = new Hubkit();
   await gh.request('/repos/o/r');
   const older = gh.request('/repos/o/r', {fresh: true});
+  await new Promise(setImmediate);
   assert.equal(state.requests.length, 2);
   assert.equal(state.requests[1].options.headers['If-None-Match'], 'old-etag');
   assert.equal((await gh.request('/repos/o/r', {fresh: true})).version, 2);
@@ -311,11 +313,9 @@ test('a delayed 304 cannot change the expiry of a newer revalidation', async () 
   ]);
   const gh = new Hubkit();
   await gh.request('/repos/o/r');
-  let older;
-  // Start a second request before the first installs its in-flight entry, so both pin the body.
-  await gh.request('/repos/o/r', {fresh: true, onSend: () => {
-    older = gh.request('/repos/o/r', {fresh: true});
-  }});
+  const older = gh.request('/repos/o/r', {fresh: true});
+  await new Promise(setImmediate);
+  await gh.request('/repos/o/r', {fresh: true});
   assert.equal(state.requests.length, 3);
   assert.equal(state.requests[1].options.headers['If-None-Match'], 'test-etag');
   assert.equal(state.requests[2].options.headers['If-None-Match'], 'test-etag');

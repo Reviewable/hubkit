@@ -18,7 +18,7 @@ function createHubkit(environment, failure) {
   let requests = 0;
   const sentBodies = [];
   const runtime = {
-    self: {}, module: {}, lrucache: require('lru-cache'), URL, AbortController,
+    self: {}, module: {}, lrucache: require('lru-cache'), URL, AbortController, DOMException,
     setTimeout, clearTimeout,
     fetch: async (url, init) => {
       requests++;

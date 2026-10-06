@@ -134,6 +134,9 @@ quota headers remain available even if reading the body subsequently fails. Cach
 transport failures before receiving headers do not refresh observations. A `304` response can
 update quota from its own headers, but never from cached headers. Retries and automatic
 pagination leave the latest received quota observation in metadata when the request finishes.
+For shared fetches, every waiting caller receives the quota observation when headers arrive.
+A caller joining while the body is still pending receives the original observation timestamp;
+joining never replaces an equal-time or newer quota observation already in that caller's metadata.
 
 Since 9.1.0, missing quota headers no longer assign `null` or an empty string to quota fields.
 Before the first valid observation, quota properties may be absent entirely. A partial observation

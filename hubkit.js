@@ -585,19 +585,19 @@ if (typeof require !== 'undefined') {
               shared = !!flight;
               if (!flight) {
                 flight = {
-                  controller: new AbortController(), users: 0, settled: false, cachedItem,
+                  controller: new AbortController(), users: new Set(), settled: false, cachedItem,
                   remove() {
                     if (flights?.get(requestKey) === flight) flights.delete(requestKey);
                   }
                 };
-                flight.promise = fetchResponse(config, options, flight.controller.signal)
+                flight.promise = fetchResponse(config, options, flight)
                   .finally(() => {
                     flight.settled = true;
                     flight.remove();
                   });
                 if (flights) flights.set(requestKey, flight);
               }
-              const response = await waitForResponse(flight, timeout);
+              const response = await waitForResponse(flight, timeout, options.metadata);
               // Each caller parses its own data: pagination and error handlers may mutate it.
               rawData = response.rawData;
               const res = {
@@ -792,10 +792,16 @@ if (typeof require !== 'undefined') {
     /* eslint-enable dot-notation */
   }
 
-  async function waitForResponse(flight, timeout) {
-    flight.users++;
+  async function waitForResponse(flight, timeout, metadata) {
+    const user = {metadata};
+    flight.users.add(user);
     let timeoutId;
     try {
+      if (metadata && flight.quota) {
+        const {values, timestampKey} = flight.quota;
+        // A late joiner observes the original headers without refreshing or regressing quota.
+        if (!(metadata[timestampKey] >= values[timestampKey])) Object.assign(metadata, values);
+      }
       let promise = flight.promise;
       if (timeout) {
         const expired = new Promise((resolve, reject) => {
@@ -817,15 +823,16 @@ if (typeof require !== 'undefined') {
       throw copy;
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
-      if (!--flight.users && !flight.settled) {
+      flight.users.delete(user);
+      if (!flight.users.size && !flight.settled) {
         flight.remove();
         flight.controller.abort();
       }
     }
   }
 
-  async function fetchResponse(config, options, signal) {
-    const init = {method: config.method, headers: config.headers, signal};
+  async function fetchResponse(config, options, flight) {
+    const init = {method: config.method, headers: config.headers, signal: flight.controller.signal};
     if (config.body) {
       init.body = JSON.stringify(config.body);
       init.headers['Content-Type'] = 'application/json';
@@ -836,7 +843,12 @@ if (typeof require !== 'undefined') {
     try {
       response = await fetch(url, init);
       // Record quota in header-arrival order, before slow or failing body reads can reorder it.
-      extractQuotaMetadata(config.url, response.headers, options.metadata);
+      flight.quota = extractQuotaMetadata(config.url, response.headers);
+      if (flight.quota) {
+        for (const {metadata} of flight.users) {
+          if (metadata) Object.assign(metadata, flight.quota.values);
+        }
+      }
       rawData = await readResponseBody(response, options);
     } catch (error) {
       error.networkFailure = true;
@@ -874,8 +886,8 @@ if (typeof require !== 'undefined') {
     return rawData;
   }
 
-  function extractQuotaMetadata(path, headers, metadata) {
-    if (!(headers && metadata)) return;
+  function extractQuotaMetadata(path, headers) {
+    if (!headers) return;
     const timestamp = Date.now();
     const resource = headers.get('x-ratelimit-resource');
     const api = resource === 'graphql' ? 'graph' : resource || detectApi(path);
@@ -892,7 +904,8 @@ if (typeof require !== 'undefined') {
       }
       if (Object.values(quota).some(value => value !== undefined)) {
         // Keep each observation together: missing fields must not inherit an older quota window.
-        Object.assign(metadata, quota, {[`${rateName}Timestamp`]: timestamp});
+        const timestampKey = `${rateName}Timestamp`;
+        return {values: {...quota, [timestampKey]: timestamp}, timestampKey};
       }
     }
   }
