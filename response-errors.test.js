@@ -7,7 +7,8 @@ const vm = require('node:vm');
 function createHubkit(status, body, contentType = 'application/json', headers = {}) {
   let requests = 0;
   const browser = {
-    self: {}, lrucache: require('lru-cache'), URL, AbortController, setTimeout, clearTimeout,
+    self: {}, lrucache: require('lru-cache'), URL, AbortController, DOMException,
+    setTimeout, clearTimeout,
     fetch: async () => {
       requests++;
       return new globalThis.Response(body, {status, headers: {
@@ -112,7 +113,8 @@ test('callback errors with a status need no response headers', async () => {
     onReceive: () => {
       throw failure;
     }
-  }), error => error === failure);
+  }), error =>
+    error !== failure && error.originalMessage === failure.message && error.status === 403);
   assert.equal(requests(), 1);
 });
 

@@ -194,7 +194,8 @@ for (const environment of ['Node', 'browser']) {
           onReceive: () => {
             throw failure;
           }
-        }), error => error === failure);
+        }), error => error !== failure && error.originalMessage === failure.message &&
+          error.status === status);
         assert.equal(requests(), 1);
       }
     });

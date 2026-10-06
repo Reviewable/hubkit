@@ -542,25 +542,6 @@ if (typeof require !== 'undefined') {
           handleError(error);
         }
 
-        function onReceive(call, flight) {
-          if (!options.onReceive) return;
-          let timing;
-          if (flight?.endTimestamp !== undefined && !flight.timingReported) {
-            flight.timingReported = true;
-            timing = {
-              startTimestamp: flight.startTimestamp,
-              latency: flight.endTimestamp - flight.startTimestamp
-            };
-          }
-          if (call) {
-            // Claim cost and timing before the callback, even if it throws or joined the fetch.
-            if (flight.costReported) call.cost = 0;
-            flight.costReported = true;
-          }
-          if (timing) options.onReceive(call, shared, timing);
-          else options.onReceive(call, shared);
-        }
-
         async function send(body, cause) {
           tries++;
           try {
@@ -591,7 +572,6 @@ if (typeof require !== 'undefined') {
                 config.body = body;
               }
             }
-            let received = false, flight;
             try {
               let flights, requestKey;
               if (cacheable) {
@@ -600,19 +580,17 @@ if (typeof require !== 'undefined') {
                 // cacheKey identifies the whole result; path/body can change between pages.
                 requestKey = computeCacheKey(path, options) + '\n' + JSON.stringify(config.headers);
               }
-              flight = !options.fresh && flights?.get(requestKey);
+              let flight = !options.fresh && flights?.get(requestKey);
               shared = !!flight;
               if (!flight) {
                 flight = {
                   controller: new AbortController(), users: new Set(), settled: false, cachedItem,
-                  startTimestamp: Date.now(),
                   remove() {
                     if (flights?.get(requestKey) === flight) flights.delete(requestKey);
                   }
                 };
                 flight.promise = fetchResponse(config, options, flight)
                   .finally(() => {
-                    flight.endTimestamp ??= Date.now();
                     flight.settled = true;
                     flight.remove();
                   });
@@ -626,13 +604,8 @@ if (typeof require !== 'undefined') {
                 data: parseResponseData(rawData, response.headers, options, response.status)
               };
               if (res.status === 304) cachedItem = flight.cachedItem;
-              received = true;
-              const api = detectApi(path);
-              const cost = api === 'graph' ? res.data?.data?.rateLimit?.cost : 1;
-              onReceive({api, cost}, flight);
               onComplete(res, rawData);
             } catch (e) {
-              if (!received) onReceive(undefined, flight);
               onError(e);
             }
           } catch (error) {
@@ -841,7 +814,6 @@ if (typeof require !== 'undefined') {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       flight.users.delete(user);
       if (!flight.users.size && !flight.settled) {
-        flight.endTimestamp = Date.now();
         flight.remove();
         flight.controller.abort();
       }
@@ -856,26 +828,36 @@ if (typeof require !== 'undefined') {
     }
     const url = new URL(config.url);
     for (const key in config.params) url.searchParams.set(key, config.params[key]);
-    let response, rawData;
+    const startTimestamp = Date.now();
+    let response, rawData, call;
     try {
-      response = await fetch(url, init);
-      // Record quota in header-arrival order, before slow or failing body reads can reorder it.
-      flight.quota = extractQuotaMetadata(config.url, response.headers);
-      if (flight.quota) {
-        for (const {metadata} of flight.users) {
-          if (metadata) Object.assign(metadata, flight.quota.values);
+      try {
+        response = await fetch(url, init);
+        // Record quota in header-arrival order, before slow or failing body reads can reorder it.
+        flight.quota = extractQuotaMetadata(config.url, response.headers);
+        if (flight.quota) {
+          for (const {metadata} of flight.users) {
+            if (metadata) Object.assign(metadata, flight.quota.values);
+          }
         }
+        rawData = await readResponseBody(response, options);
+      } catch (error) {
+        error.networkFailure = true;
+        throw error;
       }
-      rawData = await readResponseBody(response, options);
-    } catch (error) {
-      error.networkFailure = true;
-      throw error;
+      if (options.onReceive) {
+        const api = detectApi(config.url);
+        const data = api === 'graph' ?
+          parseResponseData(rawData, response.headers, options, response.status) : undefined;
+        const cost = api === 'graph' ? data?.data?.rateLimit?.cost : 1;
+        call = {api, cost};
+      }
+      return {status: response.status, headers: response.headers, rawData};
+    } finally {
+      // The initiating callback belongs to the transport, even after its caller times out.
+      // A callback exception rejects this fetch for every caller still waiting.
+      options.onReceive?.(call, Date.now() - startTimestamp);
     }
-    return {
-      status: response.status,
-      headers: response.headers,
-      rawData
-    };
   }
 
   function readResponseBody(response, options) {

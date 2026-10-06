@@ -42,13 +42,6 @@ export type Identified403Error = ({
 
 type OnSendResult = number | null | void;
 
-export interface RequestTiming {
-  /** Physical fetch start time in milliseconds since the Unix epoch, after onSend finishes. */
-  startTimestamp: number;
-  /** Milliseconds until the response body finishes, transport fails, or the last caller aborts. */
-  latency: number;
-}
-
 export interface Options {
   method?: string;
   host?: string;
@@ -92,11 +85,11 @@ export interface Options {
   onRequest?(options: Options): void | Promise<void>;  // can mutate options
   // Returns a timeout; zero invokes onError immediately, nullish results retain the options timeout.
   onSend?(cause: 'initial' | 'retry' | 'page'): OnSendResult | Promise<OnSendResult>;
-  // Cost is reported once per response. Timing is provided once per completed or aborted fetch,
-  // even if shared is true; earlier caller timeouts and duplicate callbacks have no timing.
+  // Called once per physical fetch using the initiating caller's callback, even after its timeout.
+  // Throws reject the shared attempt; latency measures the fetch through body completion or abort.
   onReceive?(
-    call?: {api: 'core' | 'graph' | 'search', cost: number | undefined},
-    shared?: boolean, timing?: RequestTiming
+    call: {api: 'core' | 'graph' | 'search', cost: number | undefined} | undefined,
+    latency: number
   ): void;
   onError?(error: Error & {
     status?: number,

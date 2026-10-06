@@ -25,7 +25,7 @@ function json(value, status = 200, headers = {}) {
 }
 
 for (const environment of ['Node', 'browser']) {
-  test(`${environment}: shared callers run their callbacks and receive isolated data and metadata`,
+  test(`${environment}: shared callers prepare separately and receive isolated data and metadata`,
     async t => {
       const fetch = t.mock.fn(async () => json({items: [1]}, 200, {
         'x-ratelimit-remaining': '42', 'cache-control': 'max-age=60'
@@ -43,13 +43,13 @@ for (const environment of ['Node', 'browser']) {
       for (const [i, options] of callbacks.entries()) {
         assert.equal(options.onRequest.mock.callCount(), 1);
         assert.equal(options.onSend.mock.calls[0].arguments[0], 'initial');
-        assert.equal(options.onReceive.mock.callCount(), 1);
-        const [call, shared] = options.onReceive.mock.calls[0].arguments;
-        assert.equal(shared, !!i);
-        assert.equal(call.cost, i ? 0 : 1);
-        assert.equal(call.api, 'core');
+        assert.equal(options.onReceive.mock.callCount(), i ? 0 : 1);
         assert.equal(options.metadata.rateLimitRemaining, 42);
       }
+      const [call, latency] = callbacks[0].onReceive.mock.calls[0].arguments;
+      assert.equal(call.cost, 1);
+      assert.equal(call.api, 'core');
+      assert.equal(typeof latency, 'number');
       values[0].items.push(2);
       assert.equal(values[1].items.length, 1);
     });
@@ -64,8 +64,10 @@ for (const environment of ['Node', 'browser']) {
         const fetch = t.mock.fn(() => headersReady.promise);
         const hubkit = createHubkit(environment, fetch);
         const metadata = [{}, {}, {}];
+        const receive = t.mock.fn();
         const calls = metadata.slice(0, 2).map(value => hubkit.request('/quota-body', {
           metadata: value, maxTries: 1,
+          onReceive: receive,
           onError() {assert.equal(value.rateLimitRemaining, 42);}
         }));
         const response = json({ok: true}, 200, {'x-ratelimit-remaining': '42'});
@@ -76,6 +78,7 @@ for (const environment of ['Node', 'browser']) {
           assert.equal(value.rateLimitRemaining, 42);
           assert.equal(value.rateLimitTimestamp, 1000);
         }
+        assert.equal(receive.mock.callCount(), 0);
         now = 2000;
         calls.push(hubkit.request('/quota-body', {metadata: metadata[2], maxTries: 1}));
         const results = Promise.allSettled(calls);
@@ -89,6 +92,9 @@ for (const environment of ['Node', 'browser']) {
           else assert.equal(result.value.ok, true);
         }
         for (const value of metadata) assert.equal(value.rateLimitTimestamp, 1000);
+        assert.equal(receive.mock.callCount(), 1);
+        assert.equal(receive.mock.calls[0].arguments[1], 1000);
+        assert.equal(receive.mock.calls[0].arguments[0]?.cost, bodyFails ? undefined : 1);
         assert.equal(fetch.mock.callCount(), 1);
       });
   }
@@ -149,17 +155,19 @@ for (const environment of ['Node', 'browser']) {
       assert.equal(first.value.ok, true);
       if (outcome === 'positive') {
         assert.equal(second.value.ok, true);
-        assert.equal(onReceive.mock.calls[0].arguments[1], true);
       } else {
         assert.equal(second.reason.name, outcome === 'zero' ? 'TimeoutError' : 'Error');
         assert.equal(onReceive.mock.callCount(), 0);
       }
+      assert.equal(onReceive.mock.callCount(), 0);
       assert.equal(onError.mock.callCount(), outcome === 'zero' ? 1 : 0);
     });
   }
 
   test(`${environment}: the initiating caller can time out while a joiner succeeds`, async t => {
     t.mock.timers.enable({apis: ['setTimeout']});
+    let now = 1000;
+    t.mock.method(Date, 'now', () => now);
     let releaseResponse, signal;
     const response = new Promise(resolve => {releaseResponse = resolve;});
     const fetch = t.mock.fn((url, config) => {signal = config.signal; return response;});
@@ -172,23 +180,26 @@ for (const environment of ['Node', 'browser']) {
     const third = hubkit.request('/deadline', {timeout: 100, onReceive: thirdReceive});
     const rejected = assert.rejects(first, {name: 'TimeoutError', networkFailure: true});
     await new Promise(setImmediate);
+    now = 1010;
     t.mock.timers.tick(10);
     await rejected;
     assert.equal(signal.aborted, false);
-    assert.deepEqual(Array.from(firstReceive.mock.calls[0].arguments), [undefined, false]);
+    assert.equal(firstReceive.mock.callCount(), 0);
+    now = 1050;
     releaseResponse(json({ok: true}, 200, {'cache-control': 'max-age=60'}));
     assert.equal((await second).ok, true);
     assert.equal((await third).ok, true);
-    assert.equal(secondReceive.mock.calls[0].arguments[1], true);
-    assert.equal(thirdReceive.mock.calls[0].arguments[1], true);
-    assert.equal(secondReceive.mock.calls[0].arguments[0].cost, 1);
-    assert.equal(thirdReceive.mock.calls[0].arguments[0].cost, 0);
+    assert.equal(firstReceive.mock.callCount(), 1);
+    assert.equal(firstReceive.mock.calls[0].arguments[0].cost, 1);
+    assert.equal(firstReceive.mock.calls[0].arguments[1], 50);
+    assert.equal(secondReceive.mock.callCount(), 0);
+    assert.equal(thirdReceive.mock.callCount(), 0);
     assert.equal((await hubkit.request('/deadline')).ok, true);
     assert.equal(fetch.mock.callCount(), 1);
   });
 
   for (const firstCallback of ['absent', 'throwing']) {
-    test(`${environment}: quota cost is reported once when the first callback is ${firstCallback}`,
+    test(`${environment}: only the initiating onReceive runs when it is ${firstCallback}`,
       async t => {
         const fetch = t.mock.fn(async () => json({ok: true}));
         const hubkit = createHubkit(environment, fetch);
@@ -202,19 +213,116 @@ for (const environment of ['Node', 'browser']) {
           hubkit.request('/cost', {onReceive: receive}),
           hubkit.request('/cost', {onReceive: receive})
         ]);
-        if (firstCallback === 'throwing') {
-          assert.equal(results[0].reason.originalMessage, 'Callback failed');
-        } else {
-          assert.equal(results[0].value.ok, true);
+        for (const result of results) {
+          if (firstCallback === 'throwing') {
+            assert.equal(result.status, 'rejected');
+            assert.equal(result.reason.originalMessage, 'Callback failed');
+          } else {
+            assert.equal(result.value.ok, true);
+          }
         }
-        assert.equal(results[1].value.ok, true);
-        assert.equal(results[2].value.ok, true);
         assert.deepEqual(receive.mock.calls.map(call => call.arguments[0].cost),
-          firstCallback === 'throwing' ? [1, 0, 0] : [1, 0]);
-        assert.equal(receive.mock.calls.filter(call => call.arguments[2]).length, 1);
+          firstCallback === 'throwing' ? [1] : []);
         assert.equal(fetch.mock.callCount(), 1);
       });
   }
+
+  test(`${environment}: a timed-out initiator's onReceive can fail remaining callers`, async t => {
+    t.mock.timers.enable({apis: ['setTimeout']});
+    const response = Promise.withResolvers();
+    const fetch = t.mock.fn(() => response.promise);
+    const hubkit = createHubkit(environment, fetch);
+    const receive = t.mock.fn(() => {throw new Error('Callback failed');});
+    const original = hubkit.request('/late-callback', {
+      timeout: 10, maxTries: 1, onReceive: receive
+    });
+    const joining = hubkit.request('/late-callback');
+    const expired = assert.rejects(original, {name: 'TimeoutError'});
+    const failed = assert.rejects(joining, {originalMessage: 'Callback failed'});
+    await new Promise(setImmediate);
+    t.mock.timers.tick(10);
+    await expired;
+    assert.equal(receive.mock.callCount(), 0);
+    response.resolve(json({ok: true}));
+    await failed;
+    assert.equal(receive.mock.callCount(), 1);
+    assert.equal(fetch.mock.callCount(), 1);
+  });
+
+  test(`${environment}: an onReceive error preserves each caller's recovery and retry policy`,
+    async t => {
+      const fetch = t.mock.fn(async () => json({ok: true}));
+      const hubkit = createHubkit(environment, fetch);
+      const receive = t.mock.fn(() => {throw new Error('Callback failed');});
+      const retryReceive = t.mock.fn();
+      const retrySend = t.mock.fn();
+      const errors = [];
+      const results = await Promise.allSettled([
+        hubkit.request('/callback-policy', {onReceive: receive, onError(error) {
+          errors.push(error);
+          error.handled = true;
+        }}),
+        hubkit.request('/callback-policy', {onError(error) {
+          errors.push(error);
+          return 'recovered';
+        }}),
+        hubkit.request('/callback-policy', {
+          onSend: retrySend, onReceive: retryReceive,
+          onError(error) {errors.push(error); return hubkit.constructor.RETRY;}
+        })
+      ]);
+      assert.equal(results[0].reason.originalMessage, 'Callback failed');
+      assert.equal(results[1].value, 'recovered');
+      assert.equal(results[2].value.ok, true);
+      assert.equal(new Set(errors).size, 3);
+      for (const error of errors.slice(1)) assert.equal(error.handled, undefined);
+      assert.equal(receive.mock.callCount(), 1);
+      assert.equal(retryReceive.mock.callCount(), 1);
+      assert.equal(retryReceive.mock.calls[0].arguments[0].cost, 1);
+      assert.deepEqual(retrySend.mock.calls.map(call => call.arguments[0]), ['initial', 'retry']);
+      assert.equal(fetch.mock.callCount(), 2);
+    });
+
+  test(`${environment}: onReceive throwing after a transport failure runs only once`, async t => {
+    const fetch = t.mock.fn(async () => {throw new Error('Connection failed');});
+    const hubkit = createHubkit(environment, fetch);
+    const receive = t.mock.fn(() => {throw new Error('Callback failed');});
+    const results = await Promise.allSettled([
+      hubkit.request('/failed-callback', {onReceive: receive}),
+      hubkit.request('/failed-callback', {onReceive: receive})
+    ]);
+    for (const result of results) assert.equal(result.reason.originalMessage, 'Callback failed');
+    assert.equal(receive.mock.callCount(), 1);
+    assert.equal(receive.mock.calls[0].arguments[0], undefined);
+    assert.equal(fetch.mock.callCount(), 1);
+  });
+
+  test(`${environment}: GraphQL cost is reported after the body finishes`, async t => {
+    let now = 1000;
+    t.mock.method(Date, 'now', () => now);
+    const body = Promise.withResolvers();
+    const fetch = t.mock.fn(async () => {
+      const response = json({});
+      response.text = () => body.promise;
+      return response;
+    });
+    const hubkit = createHubkit(environment, fetch);
+    const receive = t.mock.fn();
+    const result = hubkit.graph('query { viewer { login } }', {
+      onReceive: receive
+    });
+    await new Promise(setImmediate);
+    assert.equal(receive.mock.callCount(), 0);
+    now = 1050;
+    body.resolve('{"data":{"viewer":{"login":"user"},"rateLimit":{"cost":3}}}');
+    assert.equal((await result).viewer.login, 'user');
+    assert.equal(receive.mock.callCount(), 1);
+    const [call, latency] = receive.mock.calls[0].arguments;
+    assert.equal(call.api, 'graph');
+    assert.equal(call.cost, 3);
+    assert.equal(latency, 50);
+    assert.equal(fetch.mock.callCount(), 1);
+  });
 
   test(`${environment}: the last timeout aborts the fetch and clears pending state`, async t => {
     t.mock.timers.enable({apis: ['setTimeout']});
@@ -237,14 +345,13 @@ for (const environment of ['Node', 'browser']) {
     t.mock.timers.tick(10);
     await rejected[0];
     assert.equal(signal.aborted, false);
-    assert.equal(receive.mock.calls[0].arguments[2], undefined);
+    assert.equal(receive.mock.callCount(), 0);
     now = 1020;
     t.mock.timers.tick(10);
     await rejected[1];
     assert.equal(signal.aborted, true);
-    assert.equal(receive.mock.callCount(), 2);
-    assert.equal(receive.mock.calls[1].arguments[2].startTimestamp, 1000);
-    assert.equal(receive.mock.calls[1].arguments[2].latency, 20);
+    assert.equal(receive.mock.callCount(), 1);
+    assert.deepEqual(Array.from(receive.mock.calls[0].arguments), [undefined, 20]);
     assert.equal(hubkit.defaultOptions.cache.size, 0);
     fetch.mock.mockImplementation(async () => json({ok: true}));
     assert.equal((await hubkit.request('/abandon')).ok, true);
@@ -368,7 +475,9 @@ for (const environment of ['Node', 'browser']) {
     assert.equal(results[1].reason.originalMessage, 'Failed to fetch');
     assert.equal(results[1].reason instanceof TypeError, true);
     assert.equal(error.message, 'Failed to fetch');
-    assert.equal(receive.mock.calls.filter(call => call.arguments[2]).length, 1);
+    assert.equal(receive.mock.callCount(), 1);
+    assert.equal(receive.mock.calls[0].arguments[0], undefined);
+    assert.equal(typeof receive.mock.calls[0].arguments[1], 'number');
     assert.equal(fetch.mock.callCount(), 1);
   });
 

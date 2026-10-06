@@ -92,7 +92,7 @@ for (const environment of ['Node', 'browser']) {
           assert.equal(cache.get(key), entry);
           assert.equal(fetch.mock.callCount(), 1);
           assert.equal(onSend.mock.callCount(), 1);
-          assert.equal(onReceive.mock.callCount(), timeout ? 1 : 0);
+          assert.equal(onReceive.mock.callCount(), 0);
           assert.equal(onError.mock.callCount(), 1);
 
           const later = hubkit.request('/shared', {timeout: 100});
