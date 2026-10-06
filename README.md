@@ -196,6 +196,32 @@ error handlers that expect a Blob or ArrayBuffer in `error.response.data` or
 `error.response.rawData`; those fields now contain parsed JSON or text as described above.
 This also applies to handlers that recover from an HTTP error by returning a value from `onError`.
 
+#### Automatic retries
+
+Automatic retries for network failures, server errors, and rate limits are restricted to idempotent
+operations: REST `GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, and `DELETE`, plus recognized GraphQL queries.
+By default, REST `POST`/`PATCH` requests and GraphQL mutations are not retried automatically, including
+mutations that return partial data alongside errors. Return `Hubkit.RETRY` from `onError` to
+explicitly retry an operation when the caller knows it is safe; `maxTries` still applies.
+
+GraphQL detection conservatively recognizes a leading `query` keyword or shorthand `{`, skipping
+comments, whitespace, BOMs, and commas. If `body.operationName` is supplied, it must match the leading
+query's name. Documents starting with fragments or descriptions, or selecting a later operation,
+require an explicit retry decision. This same classification controls the error's `method` attribute.
+
+The top-level `idempotent: true` option enables the usual automatic retries when the caller knows
+the operation is idempotent, including GraphQL queries starting with fragments. Set it to `false` to
+disable automatic retries for an otherwise recognized idempotent operation. Only boolean values
+override the inference, and `onError` still takes precedence. The option is local to Hubkit and is
+not sent to GitHub. For example:
+
+```js
+await gh.graph(fragmentFirstQuery, {idempotent: true, variables});
+```
+
+The flag also works with `request('POST /graphql', {idempotent: true, body: {query}})`, REST requests,
+and scoped defaults. It controls retries without changing `error.method`.
+
 #### Options reference
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,
@@ -224,6 +250,7 @@ content.  Valid values are:
   * for blobs: `json` (default), `raw`
   * for commits, etc.: `diff`, `patch`
 * `body`: The contents of the request to send, typically a JSON-friendly object.
+* `idempotent`: A boolean overriding whether the operation is eligible for automatic retries. Applies to REST and GraphQL requests; inferred from the HTTP method or GraphQL document when omitted. `onError` takes precedence.
 * `variables`: For GraphQL queries, variables to pass to the server along with the query.
 * `autoQueryRateLimit`: For GraphQL queries, whether to inject a `rateLimit {cost, remaining}` property into every query.  This is used to figure out the cost information passed to `onReceive` (see below).
 * `responseType`: The response type if you want to receive raw data; one of `text`, `arraybuffer`, or `blob`.  Only useful when fetching file blobs.  Applies to successful responses only; HTTP error responses ignore this option (see [HTTP error bodies](#http-error-bodies-breaking-change-in-900)).
@@ -238,7 +265,9 @@ of items.  This also works for GraphQL queries, as long as your query has a `$af
 * `ifGone`: A value to return instead of throwing an exception when the request results in a 410.
 * `onError`: A function to be called when an error occurs, either in the request itself or an
 unexpected 4xx or 5xx response.  If it's an error response, the error object will have `status`,
-`method`, `path`, and `response` attributes.  If the function returns `undefined`, the promise will
+`method`, `path`, and `response` attributes.  GraphQL errors returned with HTTP 200 have a
+synthesized `error.status`, which also controls automatic retries; `error.response.status` retains
+the original HTTP status.  If the function returns `undefined`, the promise will
 be rejected as usual (or the request retried in some special cases, like network failures and rate-limited 403s or 429s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
 
 Rate-limited `403` and `429` responses follow the same retry rules: `Retry-After` takes precedence;

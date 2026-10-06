@@ -46,6 +46,8 @@ interface Options {
   graphHost?: string;
   pathPattern?: string;
   body?: any;
+  /** Override automatic retry inference for REST or GraphQL; onError takes precedence. */
+  idempotent?: boolean;
   media?: string;
   ifNotFound?: any;
   ifGone?: any;
