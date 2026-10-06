@@ -1,6 +1,6 @@
 {
   "name": "hubkit",
-  "version": "9.0.1",
+  "version": "9.1.0",
   "description": "GitHub API library for JavaScript, promise-based, for both NodeJS and the browser",
   "main": "index.js",
   "types": "index.d.ts",
@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/pkaminski/hubkit",
   "engines": {
-    "node": ">=18.0"
+    "node": ">=22.0"
   },
   "packageManager": "yarn@4.13.0",
   "dependencies": {

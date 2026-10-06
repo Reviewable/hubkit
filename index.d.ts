@@ -1,6 +1,11 @@
 import type {LRUCache} from 'lru-cache';
 
-export default class Hubkit {
+export default Hubkit;
+
+type Hubkit = HubkitClass;
+declare const Hubkit: typeof HubkitClass & Metadata;
+
+declare class HubkitClass {
   static defaults: Options & {stats: Stats};
   static Stats: StatsClass;
   static readonly RETRY: unique symbol;
@@ -86,6 +91,8 @@ interface Options {
     logTag?: string,
     fingerprint?: string[],
     networkFailure?: boolean,
+    /** Computed rate-limit retry delay in milliseconds. */
+    retryDelay?: number,
   }):
     undefined | typeof Hubkit.RETRY | typeof Hubkit.DONT_RETRY | any;
 }
@@ -104,10 +111,18 @@ interface Stats {
 export interface Metadata {
   rateLimit?: number;
   rateLimitRemaining?: number;
+  /** Quota reset time in milliseconds since the Unix epoch. */
+  rateLimitResetTimestamp?: number;
+  /** Time the quota headers were observed, in milliseconds since the Unix epoch. */
+  rateLimitTimestamp?: number;
   searchRateLimit?: number;
   searchRateLimitRemaining?: number;
+  searchRateLimitResetTimestamp?: number;
+  searchRateLimitTimestamp?: number;
   graphRateLimit?: number;
   graphRateLimitRemaining?: number;
+  graphRateLimitResetTimestamp?: number;
+  graphRateLimitTimestamp?: number;
   oAuthScopes?: string[];
   contentType?: string;
 }

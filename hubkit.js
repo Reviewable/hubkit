@@ -229,29 +229,30 @@ if (typeof require !== 'undefined') {
             options.cache.delete(cacheKey);
             if (options.stats) options.stats.record(false);
           }
+          const rateLimited = [403, 429].includes(res?.status);
+          if (rateLimited) {
+            const retryAfter = res.headers.get('retry-after');
+            const reset = res.headers.get('x-ratelimit-reset');
+            let delay;
+            if (retryAfter) {
+              if (/^\d+$/.test(retryAfter)) delay = Number(retryAfter) * 1000;
+            } else if (/^0+$/.test(res.headers.get('x-ratelimit-remaining')?.trim()) &&
+                /^\d+$/.test(reset)) {
+              delay = Math.max(0, Number(reset) * 1000 - Date.now());
+            }
+            // Invalid and overflowing timer delays can otherwise trigger immediate retries.
+            if (Number.isSafeInteger(delay) && delay >= 0 && delay <= 2_147_483_647) {
+              error.retryDelay = delay;
+            }
+          }
           let value;
           if (options.onError) value = options.onError(error);
           if (value === undefined) {
             if (error.networkFailure || [500, 502, 503, 504].includes(res?.status)) {
               value = Hubkit.RETRY;
-            } else if (res?.status === 403 && res.headers.get('retry-after')) {
-              try {
-                error.retryDelay =
-                  parseInt(res.headers.get('retry-after').replace(/[^\d]*$/, ''), 10) * 1000;
-                if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-              } catch {
-                // ignore, don't retry request
-              }
-            } else if (res?.status === 403 &&
-                res.headers.get('x-ratelimit-remaining') === '0' &&
-                res.headers.get('x-ratelimit-reset')) {
-              try {
-                const reset = parseInt(res.headers.get('x-ratelimit-reset'), 10);
-                error.retryDelay = Math.max(0, reset * 1000 - Date.now());
-                if (!options.timeout || error.retryDelay < options.timeout) value = Hubkit.RETRY;
-              } catch {
-                // ignore, don't retry request
-              }
+            } else if (rateLimited && error.retryDelay !== undefined &&
+                (!options.timeout || error.retryDelay < options.timeout)) {
+              value = Hubkit.RETRY;
             }
           }
           if (value === Hubkit.RETRY && tries < options.maxTries) {
@@ -279,16 +280,18 @@ if (typeof require !== 'undefined') {
         }
 
         const onComplete = (res, rawData) => {
-          extractMetadata(path, res.headers, options.metadata);
+          if (res.status !== 304) extractMetadata(res.headers, options.metadata);
 
           try {
             if (res.status === 304) {
-              // Backfill metadata from the cache as some (like x-oauth-scopes) are not re-emitted
-              // with a 304, but let response override cached values if present.  (Note that cache
-              // keys include the token, so it's safe to replay user-specific headers from cache.)
-              extractMetadata(path, cachedItem.headers, options.metadata);
-              extractMetadata(path, res.headers, options.metadata);
-              cachedItem.expiry = parseExpiry(res.headers);
+              // Backfill metadata like x-oauth-scopes, but never replay cached quota observations.
+              // Cache keys include the token, so user-specific headers are safe to replay.
+              extractMetadata(cachedItem.headers, options.metadata);
+              extractMetadata(res.headers, options.metadata);
+              // Restore our in-flight entry without overwriting a newer concurrent request.
+              if (checkCache(options, cacheKey)?.promise === requestPromise) {
+                options.cache.set(cacheKey, {...cachedItem, expiry: parseExpiry(res.headers)});
+              }
               if (options.stats) options.stats.record(true, cachedItem.size);
               resolve(attachFreshNext(cachedItem.value, this, options));
             } else if (
@@ -752,6 +755,8 @@ if (typeof require !== 'undefined') {
     let response, rawData;
     try {
       response = await fetch(url, init);
+      // Record quota in header-arrival order, before slow or failing body reads can reorder it.
+      extractQuotaMetadata(config.url, response.headers, options.metadata);
       rawData = await readResponseBody(response, options);
     } catch (error) {
       error.networkFailure = true;
@@ -792,14 +797,31 @@ if (typeof require !== 'undefined') {
     return rawData;
   }
 
-  function extractMetadata(path, headers, metadata) {
+  function extractQuotaMetadata(path, headers, metadata) {
     if (!(headers && metadata)) return;
-    const api = detectApi(path);
-    const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
-    metadata[rateName] = headers.get('x-ratelimit-limit') &&
-      parseInt(headers.get('x-ratelimit-limit'), 10);
-    metadata[`${rateName}Remaining`] = headers.get('x-ratelimit-remaining') &&
-      parseInt(headers.get('x-ratelimit-remaining'), 10);
+    const timestamp = Date.now();
+    const resource = headers.get('x-ratelimit-resource');
+    const api = resource === 'graphql' ? 'graph' : resource || detectApi(path);
+    if (['core', 'search', 'graph'].includes(api)) {
+      const rateName = api === 'core' ? 'rateLimit' : `${api}RateLimit`;
+      const quota = {};
+      for (const [suffix, header, multiplier] of [
+        ['', 'limit', 1], ['Remaining', 'remaining', 1], ['ResetTimestamp', 'reset', 1000]
+      ]) {
+        const text = headers.get(`x-ratelimit-${header}`)?.trim();
+        const value = /^\d+$/.test(text) ? Number(text) : NaN;
+        quota[rateName + suffix] = Number.isSafeInteger(value) && value >= 0 &&
+          Number.isSafeInteger(value * multiplier) ? value * multiplier : undefined;
+      }
+      if (Object.values(quota).some(value => value !== undefined)) {
+        // Keep each observation together: missing fields must not inherit an older quota window.
+        Object.assign(metadata, quota, {[`${rateName}Timestamp`]: timestamp});
+      }
+    }
+  }
+
+  function extractMetadata(headers, metadata) {
+    if (!(headers && metadata)) return;
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
     // missing.
     if (headers.has('x-oauth-scopes')) {

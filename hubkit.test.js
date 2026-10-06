@@ -61,6 +61,7 @@ for (const [environment, implementation] of [['Node', Hubkit], ['browser', brows
       for (const prefix of [
         '',
         'GitHub error 403 on GET https://api.github.com/repos/first/repo: ',
+        'GitHub error 429 on GET https://api.github.com/repos/first/repo: ',
         'Internal error: GitHub error 403 on POST https://ghe.example/api/graphql: '
       ]) {
         const text = prefix + message;
