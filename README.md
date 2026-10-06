@@ -196,6 +196,19 @@ error handlers that expect a Blob or ArrayBuffer in `error.response.data` or
 `error.response.rawData`; those fields now contain parsed JSON or text as described above.
 This also applies to handlers that recover from an HTTP error by returning a value from `onError`.
 
+#### Automatic retries
+
+Automatic retries for network failures, server errors, and rate limits are restricted to idempotent
+operations: REST `GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, and `DELETE`, plus recognized GraphQL queries.
+REST `POST`/`PATCH` requests and GraphQL mutations are not retried automatically, including mutations
+that return partial data alongside errors. Return `Hubkit.RETRY` from `onError` to explicitly retry
+an operation when the caller knows it is safe; `maxTries` still applies.
+
+GraphQL detection conservatively recognizes a leading `query` keyword or shorthand `{`, skipping
+comments, whitespace, BOMs, and commas. If `body.operationName` is supplied, it must match the leading
+query's name. Documents starting with fragments or descriptions, or selecting a later operation,
+require an explicit retry decision. This same classification controls the error's `method` attribute.
+
 #### Options reference
 
 Valid options to pass (to the constructor or to each request), or to set on `Hubkit.defaults`,

@@ -188,6 +188,10 @@ if (typeof require !== 'undefined') {
 
       if (options.onRequest) await options.onRequest(options);
       path = interpolatePath(path, options);
+      const graph = detectApi(path) === 'graph';
+      const graphQuery = graph && isGraphQuery(options.body);
+      const idempotent = graph ? graphQuery :
+        ['GET', 'HEAD', 'OPTIONS', 'TRACE', 'PUT', 'DELETE'].includes(options.method);
 
       let cachedItem = null, cacheKey;
       const cacheable = options.cache && options.method === 'GET';
@@ -221,7 +225,7 @@ if (typeof require !== 'undefined') {
         let result, tries = 0;
         send(options.body, options._cause || 'initial');
 
-        function handleError(error, res) {
+        function handleError(error, res, status = res?.status) {
           const headers = res && Object.fromEntries(
             [...res.headers].filter(([k]) => k !== 'authorization'));
           error.request = {method: options.method, url: path, headers};
@@ -229,7 +233,6 @@ if (typeof require !== 'undefined') {
             options.cache.delete(cacheKey);
             if (options.stats) options.stats.record(false);
           }
-          const status = error.status ?? res?.status;
           const rateLimited = [403, 429].includes(status);
           if (rateLimited) {
             const retryAfter = res.headers.get('retry-after');
@@ -248,7 +251,7 @@ if (typeof require !== 'undefined') {
           }
           let value;
           if (options.onError) value = options.onError(error);
-          if (value === undefined) {
+          if (value === undefined && idempotent) {
             if (error.networkFailure || [500, 502, 503, 504].includes(status)) {
               value = Hubkit.RETRY;
             } else if (rateLimited && error.retryDelay !== undefined &&
@@ -345,17 +348,14 @@ if (typeof require !== 'undefined') {
                 statusError.status = status;
                 if (res.data && res.data.errors) statusError.errors = res.data.errors;
                 if (res.data && res.data.data) statusError.data = res.data.data;
-                statusError.method = options.method;
-                if (options.body && options.body.query && /^\s*query/.test(options.body.query)) {
-                  statusError.method = 'GET';
-                }
+                statusError.method = graphQuery ? 'GET' : options.method;
                 statusError.path = path;  // This is the fully expanded URL at this point.
                 statusError.pathPattern = options.pathPattern;
                 statusError.response = {...res, headers: Object.fromEntries(res.headers)};
                 if (options.logTag) statusError.logTag = options.logTag;
                 statusError.fingerprint =
                   ['Hubkit', options.method, options.logTag || options.pathPattern, `${status}`];
-                handleError(statusError, res);
+                handleError(statusError, res, status);
               }
             } else if (options.media === 'raw' && !(
               /^(?:text\/plain|application\/octet-stream) *;?/.test(res.headers.get('content-type'))
@@ -654,6 +654,20 @@ if (typeof require !== 'undefined') {
 
   function detectApi(url) {
     return url.match(/^https?:\/\/[^/]+(?:\/api)?\/(search|graph(?=ql))/)?.[1] || 'core';
+  }
+
+  function isGraphQuery(body) {
+    if (typeof body?.query !== 'string') return false;
+    // Only classify a leading query; fragments or descriptions before it are uncertain.
+    const ignored = /^(?:[\t \r\n,\uFEFF]|#[^\r\n]*)*/;
+    const query = body.query.replace(ignored, '');
+    const operationName = body.operationName ?? null;
+    if (query.startsWith('{')) return operationName === null;
+    if (!/^query\b/.test(query)) return false;
+    // Without operationName, GraphQL rejects documents containing multiple operations.
+    if (operationName === null) return true;
+    const name = query.slice(5).replace(ignored, '').match(/^[_A-Za-z][_0-9A-Za-z]*/)?.[0];
+    return name === operationName;
   }
 
   // A GraphQL connection holds its items in `nodes`, or in `edges` when the query selects
