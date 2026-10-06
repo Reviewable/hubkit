@@ -42,7 +42,7 @@ export type Identified403Error = ({
 
 type OnSendResult = number | null | void;
 
-interface Options {
+export interface Options {
   method?: string;
   host?: string;
   graphHost?: string;
