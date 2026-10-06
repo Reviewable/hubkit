@@ -847,12 +847,10 @@ if (typeof require !== 'undefined') {
         error.networkFailure = true;
         throw error;
       }
+      const api = detectApi(config.url);
+      call = {api, cost: api === 'graph' ? undefined : 1};
       const data = parseResponseData(rawData, response.headers, options, response.status);
-      if (options.onReceive) {
-        const api = detectApi(config.url);
-        const cost = api === 'graph' ? data?.data?.rateLimit?.cost : 1;
-        call = {api, cost};
-      }
+      if (api === 'graph') call.cost = data?.data?.rateLimit?.cost;
       return {status: response.status, headers: response.headers, rawData, data};
     } finally {
       // The initiating callback belongs to the transport, even after its caller times out.

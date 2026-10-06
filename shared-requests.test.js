@@ -40,6 +40,24 @@ for (const environment of ['Node', 'browser']) {
       assert.equal(onReceive.mock.callCount(), 1);
       assert.equal(onReceive.mock.calls[0].arguments[0].cost, api === 'graph' ? 3 : 1);
     });
+
+    test(`${environment}: malformed ${api} JSON still reports the completed fetch`, async t => {
+      const fetch = t.mock.fn(async () => new globalThis.Response('invalid JSON', {
+        headers: {'content-type': 'application/json'}
+      }));
+      const hubkit = createHubkit(environment, fetch);
+      const onReceive = t.mock.fn();
+      const request = api === 'graph' ?
+        hubkit.graph('query { viewer { login } }', {onReceive}) :
+        hubkit.request('/user', {onReceive});
+      await assert.rejects(request, {name: 'SyntaxError'});
+      assert.equal(fetch.mock.callCount(), 1);
+      assert.equal(onReceive.mock.callCount(), 1);
+      const [call, latency] = onReceive.mock.calls[0].arguments;
+      assert.equal(call.api, api);
+      assert.equal(call.cost, api === 'graph' ? undefined : 1);
+      assert.equal(typeof latency, 'number');
+    });
   }
 
   test(`${environment}: shared callers prepare separately and receive isolated data and metadata`,
