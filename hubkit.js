@@ -229,7 +229,8 @@ if (typeof require !== 'undefined') {
             options.cache.delete(cacheKey);
             if (options.stats) options.stats.record(false);
           }
-          const rateLimited = [403, 429].includes(res?.status);
+          const status = error.status ?? res?.status;
+          const rateLimited = [403, 429].includes(status);
           if (rateLimited) {
             const retryAfter = res.headers.get('retry-after');
             const reset = res.headers.get('x-ratelimit-reset');
@@ -248,7 +249,7 @@ if (typeof require !== 'undefined') {
           let value;
           if (options.onError) value = options.onError(error);
           if (value === undefined) {
-            if (error.networkFailure || [500, 502, 503, 504].includes(res?.status)) {
+            if (error.networkFailure || [500, 502, 503, 504].includes(status)) {
               value = Hubkit.RETRY;
             } else if (rateLimited && error.retryDelay !== undefined &&
                 (!options.timeout || error.retryDelay < options.timeout)) {

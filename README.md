@@ -238,7 +238,9 @@ of items.  This also works for GraphQL queries, as long as your query has a `$af
 * `ifGone`: A value to return instead of throwing an exception when the request results in a 410.
 * `onError`: A function to be called when an error occurs, either in the request itself or an
 unexpected 4xx or 5xx response.  If it's an error response, the error object will have `status`,
-`method`, `path`, and `response` attributes.  If the function returns `undefined`, the promise will
+`method`, `path`, and `response` attributes.  GraphQL errors returned with HTTP 200 have a
+synthesized `error.status`, which also controls automatic retries; `error.response.status` retains
+the original HTTP status.  If the function returns `undefined`, the promise will
 be rejected as usual (or the request retried in some special cases, like network failures and rate-limited 403s or 429s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
 
 Rate-limited `403` and `429` responses follow the same retry rules: `Retry-After` takes precedence;

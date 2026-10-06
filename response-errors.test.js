@@ -4,14 +4,15 @@ const {readFileSync} = require('node:fs');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function createHubkit(status, body, contentType = 'application/json') {
+function createHubkit(status, body, contentType = 'application/json', headers = {}) {
   let requests = 0;
   const browser = {
     self: {}, lrucache: require('lru-cache'), URL, AbortController, setTimeout, clearTimeout,
     fetch: async () => {
       requests++;
       return new globalThis.Response(body, {status, headers: {
-        'content-type': contentType, 'x-ratelimit-remaining': '0', 'x-github-request-id': 'test-id'
+        'content-type': contentType, 'x-ratelimit-remaining': '0', 'x-github-request-id': 'test-id',
+        ...headers
       }});
     }
   };
@@ -41,6 +42,79 @@ for (const [message, expectedStatus] of [
     assert.equal(requests(), 1);
   });
 }
+
+for (const {name, type, message = name, status, headers, attempts, retryDelay} of [
+  {name: 'server failure', message: 'Something went wrong', status: 500, attempts: 3},
+  {
+    name: 'secondary rate limit', type: 'RATE_LIMITED', status: 403,
+    headers: {'retry-after': '0'}, attempts: 3, retryDelay: 0
+  },
+  {
+    name: 'exhausted quota', type: 'RATE_LIMIT', status: 403,
+    headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0
+  },
+  {name: 'forbidden without retry headers', type: 'FORBIDDEN', status: 403, attempts: 1},
+  {name: 'not found', type: 'NOT_FOUND', status: 404, attempts: 1},
+  {name: 'validation failure', status: 400, attempts: 1}
+]) {
+  test(`GraphQL ${name} uses its synthesized status for retries`, async () => {
+    const body = JSON.stringify({errors: [{type, message}]});
+    const {Hubkit, requests} = createHubkit(200, body, 'application/json', headers);
+    let callbacks = 0;
+    await assert.rejects(new Hubkit().graph('query { viewer { login } }', {
+      onError: error => {
+        callbacks++;
+        assert.equal(error.status, status);
+        assert.equal(error.response.status, 200);
+      }
+    }), error => {
+      assert.equal(error.status, status);
+      assert.equal(error.response.status, 200);
+      assert.equal(error.response.rawData, body);
+      assert.equal(error.retryDelay, retryDelay);
+      return true;
+    });
+    assert.equal(requests(), attempts);
+    assert.equal(callbacks, attempts);
+  });
+}
+
+for (const [type, message, status] of [
+  [undefined, 'Something went wrong', 500], ['RATE_LIMITED', 'Rate limit exceeded', 403]
+]) {
+  test(`GraphQL ${status} retries honor onError overrides`, async () => {
+    const body = JSON.stringify({errors: [{type, message}]});
+    for (const recover of [false, true]) {
+      const {Hubkit, requests} = createHubkit(200, body, 'application/json', {'retry-after': '0'});
+      const promise = new Hubkit().graph('query { viewer { login } }', {
+        onError: () => recover ? 'recovered' : Hubkit.DONT_RETRY
+      });
+      if (recover) assert.equal(await promise, 'recovered');
+      else await assert.rejects(promise, {status});
+      assert.equal(requests(), 1);
+    }
+  });
+}
+
+test('GraphQL rate-limit retries honor the request timeout', async () => {
+  const body = JSON.stringify({errors: [{type: 'RATE_LIMITED', message: 'Rate limit exceeded'}]});
+  const {Hubkit, requests} = createHubkit(200, body, 'application/json', {'retry-after': '2'});
+  await assert.rejects(new Hubkit().graph('query { viewer { login } }', {timeout: 1000}), {
+    status: 403, retryDelay: 2000
+  });
+  assert.equal(requests(), 1);
+});
+
+test('callback errors with a status need no response headers', async () => {
+  const {Hubkit, requests} = createHubkit(200, '{}');
+  const failure = Object.assign(new Error('Callback failed'), {status: 403});
+  await assert.rejects(new Hubkit().request('/user', {
+    onReceive: () => {
+      throw failure;
+    }
+  }), error => error === failure);
+  assert.equal(requests(), 1);
+});
 
 for (const options of [{}, {media: 'raw'}, {responseType: 'text'},
   {media: 'raw', responseType: 'blob'}, {responseType: 'arraybuffer'}]) {
