@@ -840,7 +840,7 @@ if (typeof require !== 'undefined') {
         // Record quota in header-arrival order, before slow or failing body reads can reorder it.
         flight.quota = extractQuotaMetadata(config.url, response.headers);
         for (const {metadata} of flight.users) {
-          extractMetadata(response.headers, metadata, flight.timestamp);
+          extractMetadata(response.headers, metadata, flight.timestamp, true);
           if (metadata && flight.quota) Object.assign(metadata, flight.quota.values);
         }
         rawData = await readResponseBody(response, options);
@@ -912,12 +912,13 @@ if (typeof require !== 'undefined') {
     }
   }
 
-  function extractMetadata(headers, metadata, timestamp) {
+  function extractMetadata(headers, metadata, timestamp, current = false) {
     if (!(headers && metadata)) return;
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
-    // missing.
+    // missing. Current headers win in arrival order, even when timestamps tie; replays must
+    // be strictly newer than the observation already recorded in metadata.
     if (headers.has('x-oauth-scopes') && timestamp !== undefined &&
-        !(metadata.oAuthScopesTimestamp >= timestamp)) {
+        (current || !(metadata.oAuthScopesTimestamp >= timestamp))) {
       metadata.oAuthScopesTimestamp = timestamp;
       metadata.oAuthScopes = [];
       const scopes = (headers.get('x-oauth-scopes') || '').split(/\s*,\s*/);

@@ -145,38 +145,40 @@ for (const environment of ['Node', 'browser']) {
       });
   }
 
-  test(`${environment}: joining after headers cannot replace newer quota metadata`, async t => {
-    let now = 1000;
-    t.mock.method(Date, 'now', () => now);
-    const bodyReady = Promise.withResolvers();
-    const fetch = t.mock.fn(async url => {
-      const response = json({}, 200, {
-        'x-ratelimit-remaining': url.pathname === '/older' ? '42' : '41',
-        'x-oauth-scopes': url.pathname === '/older' ? 'repo' : 'public_repo'
+  for (const timestamp of [1000, 2000]) {
+    test(`${environment}: late joiners preserve metadata at ${timestamp}`, async t => {
+      let now = 1000;
+      t.mock.method(Date, 'now', () => now);
+      const bodyReady = Promise.withResolvers();
+      const fetch = t.mock.fn(async url => {
+        const response = json({}, 200, {
+          'x-ratelimit-remaining': url.pathname === '/older' ? '42' : '41',
+          'x-oauth-scopes': url.pathname === '/older' ? 'repo' : 'public_repo'
+        });
+        if (url.pathname === '/older') response.text = () => bodyReady.promise;
+        return response;
       });
-      if (url.pathname === '/older') response.text = () => bodyReady.promise;
-      return response;
+      const hubkit = createHubkit(environment, fetch);
+      const metadata = {};
+      const original = hubkit.request('/older', {metadata});
+      await new Promise(setImmediate);
+      now = timestamp;
+      await hubkit.request('/newer', {metadata});
+      const joining = hubkit.request('/older', {metadata});
+      await new Promise(setImmediate);
+      assert.equal(metadata.rateLimitRemaining, 41);
+      assert.equal(metadata.rateLimitTimestamp, timestamp);
+      assert.equal(metadata.oAuthScopes.join(','), 'public_repo');
+      assert.equal(metadata.oAuthScopesTimestamp, timestamp);
+      bodyReady.resolve('{}');
+      await Promise.all([original, joining]);
+      assert.equal(metadata.rateLimitRemaining, 41);
+      assert.equal(metadata.rateLimitTimestamp, timestamp);
+      assert.equal(metadata.oAuthScopes.join(','), 'public_repo');
+      assert.equal(metadata.oAuthScopesTimestamp, timestamp);
+      assert.equal(fetch.mock.callCount(), 2);
     });
-    const hubkit = createHubkit(environment, fetch);
-    const original = hubkit.request('/older');
-    await new Promise(setImmediate);
-    now = 2000;
-    const metadata = {};
-    await hubkit.request('/newer', {metadata});
-    const joining = hubkit.request('/older', {metadata});
-    await new Promise(setImmediate);
-    assert.equal(metadata.rateLimitRemaining, 41);
-    assert.equal(metadata.rateLimitTimestamp, 2000);
-    assert.equal(metadata.oAuthScopes.join(','), 'public_repo');
-    assert.equal(metadata.oAuthScopesTimestamp, 2000);
-    bodyReady.resolve('{}');
-    await Promise.all([original, joining]);
-    assert.equal(metadata.rateLimitRemaining, 41);
-    assert.equal(metadata.rateLimitTimestamp, 2000);
-    assert.equal(metadata.oAuthScopes.join(','), 'public_repo');
-    assert.equal(metadata.oAuthScopesTimestamp, 2000);
-    assert.equal(fetch.mock.callCount(), 2);
-  });
+  }
 
   for (const outcome of ['zero', 'throw', 'positive']) {
     test(`${environment}: an async joining onSend can return ${outcome} independently`, async t => {

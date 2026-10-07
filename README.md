@@ -142,8 +142,9 @@ joining never replaces an equal-time or newer quota observation already in that 
 since the Unix epoch. Scopes and their timestamp update together, before reading the body,
 including on HTTP errors and for callers sharing a fetch. A missing scope header leaves both
 fields unchanged, even when quota headers are present. An empty scope header records an empty
-array. Scope observations from late joiners or cached headers never replace an equal-time or
-newer scope observation. A `304` may restore cached scopes with their original timestamp;
+array. Newly received scope headers update metadata in arrival order, even if timestamps tie.
+Scope observations from late joiners or cached headers never replace an equal-time or newer
+scope observation. A `304` may restore cached scopes with their original timestamp;
 only an explicit scope header on the `304` gives them a new timestamp.
 
 Since 9.1.0, missing quota headers no longer assign `null` or an empty string to quota fields.
