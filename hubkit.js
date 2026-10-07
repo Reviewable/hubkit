@@ -923,13 +923,10 @@ if (typeof require !== 'undefined') {
     if (!(headers && metadata)) return;
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
     // missing. Current headers win in arrival order, even when timestamps tie; replays must
-    // be strictly newer than the observation already recorded in metadata. Legacy cached scopes
-    // without a timestamp can only fill missing metadata, leaving their observation time unknown.
-    if (headers.has('x-oauth-scopes') && (timestamp === undefined ?
-      metadata.oAuthScopes === undefined && metadata.oAuthScopesTimestamp === undefined :
-      current || !(metadata.oAuthScopesTimestamp >= timestamp)
-    )) {
-      if (timestamp !== undefined) metadata.oAuthScopesTimestamp = timestamp;
+    // be strictly newer than the observation already recorded in metadata.
+    if (headers.has('x-oauth-scopes') &&
+        (current || !(metadata.oAuthScopesTimestamp >= timestamp))) {
+      metadata.oAuthScopesTimestamp = timestamp;
       metadata.oAuthScopes = [];
       const scopes = (headers.get('x-oauth-scopes') || '').split(/\s*,\s*/);
       if (!(scopes.length === 1 && scopes[0] === '')) {

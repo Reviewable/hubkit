@@ -47,8 +47,8 @@ interface CachedResponse {
   eTag?: string;
   status: number;
   headers: any;
-  /** Receipt time of the cached scope header, when known. */
-  timestamp?: number;
+  /** Receipt time of the cached scope header. */
+  timestamp: number;
   size: number;
   expiry?: number;
 }

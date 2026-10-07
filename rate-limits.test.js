@@ -377,30 +377,6 @@ for (const scopes of ['read:org', '']) {
   });
 }
 
-for (const scopes of ['repo', '']) {
-  for (const [name, existingScopes, timestamp] of [
-    ['missing', undefined, undefined], ['untimestamped', ['read:org'], undefined],
-    ['empty', [], undefined], ['timestamped', ['read:org'], NOW + 1000]
-  ]) {
-    test(`legacy cached scopes '${scopes}' only backfill missing metadata: ${name}`, async () => {
-      const {Hubkit} = createHubkit([
-        {headers: {etag: 'test-etag', 'x-oauth-scopes': scopes}},
-        {status: 304, now: NOW + 2000}
-      ]);
-      const gh = new Hubkit();
-      await gh.request('/repos/o/r');
-      delete gh.defaultOptions.cache.values().next().value.timestamp;
-      const metadata = {};
-      if (existingScopes !== undefined) metadata.oAuthScopes = existingScopes;
-      if (timestamp !== undefined) metadata.oAuthScopesTimestamp = timestamp;
-      await gh.request('/repos/o/r', {fresh: true, metadata});
-      assert.equal(metadata.oAuthScopes.join(','), existingScopes?.join(',') ?? scopes);
-      assert.equal(metadata.oAuthScopesTimestamp, timestamp);
-      assert.equal(Object.hasOwn(metadata, 'oAuthScopesTimestamp'), timestamp !== undefined);
-    });
-  }
-}
-
 test('automatic pagination leaves the final page quota observation in metadata', async () => {
   const {Hubkit, state} = createHubkit([
     {body: [1], headers: {
