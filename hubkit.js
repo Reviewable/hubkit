@@ -291,7 +291,14 @@ if (typeof require !== 'undefined') {
               extractMetadata(res.headers, options.metadata, res.timestamp);
               // Restore our in-flight entry without overwriting a newer concurrent request.
               if (options.cache.get(cacheKey) === cacheEntry) {
-                options.cache.set(cacheKey, {...cachedItem, expiry: parseExpiry(res.headers)});
+                const entry = {...cachedItem, expiry: parseExpiry(res.headers)};
+                if (res.headers.has('x-oauth-scopes')) {
+                  // Preserve the body and unrelated headers while retaining the latest scopes.
+                  entry.headers = new globalThis.Headers(cachedItem.headers);
+                  entry.headers.set('x-oauth-scopes', res.headers.get('x-oauth-scopes'));
+                  entry.timestamp = res.timestamp;
+                }
+                options.cache.set(cacheKey, entry);
               }
               if (options.stats) options.stats.record(true, cachedItem.size);
               resolve(attachFreshNext(cachedItem.value, this, options));
@@ -916,10 +923,13 @@ if (typeof require !== 'undefined') {
     if (!(headers && metadata)) return;
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
     // missing. Current headers win in arrival order, even when timestamps tie; replays must
-    // be strictly newer than the observation already recorded in metadata.
-    if (headers.has('x-oauth-scopes') && timestamp !== undefined &&
-        (current || !(metadata.oAuthScopesTimestamp >= timestamp))) {
-      metadata.oAuthScopesTimestamp = timestamp;
+    // be strictly newer than the observation already recorded in metadata. Legacy cached scopes
+    // without a timestamp can only fill missing metadata, leaving their observation time unknown.
+    if (headers.has('x-oauth-scopes') && (timestamp === undefined ?
+      metadata.oAuthScopes === undefined && metadata.oAuthScopesTimestamp === undefined :
+      current || !(metadata.oAuthScopesTimestamp >= timestamp)
+    )) {
+      if (timestamp !== undefined) metadata.oAuthScopesTimestamp = timestamp;
       metadata.oAuthScopes = [];
       const scopes = (headers.get('x-oauth-scopes') || '').split(/\s*,\s*/);
       if (!(scopes.length === 1 && scopes[0] === '')) {

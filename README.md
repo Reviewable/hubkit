@@ -145,7 +145,10 @@ fields unchanged, even when quota headers are present. An empty scope header rec
 array. Newly received scope headers update metadata in arrival order, even if timestamps tie.
 Scope observations from late joiners or cached headers never replace an equal-time or newer
 scope observation. A `304` may restore cached scopes with their original timestamp;
-only an explicit scope header on the `304` gives them a new timestamp.
+only an explicit scope header on the `304` gives them a new timestamp, which is retained with
+the updated scopes for later revalidations. Legacy cache entries without a timestamp can
+backfill missing scopes, but leave their observation time unknown and never replace existing
+scope metadata.
 
 Since 9.1.0, missing quota headers no longer assign `null` or an empty string to quota fields.
 Before the first valid observation, quota properties may be absent entirely. A partial observation
