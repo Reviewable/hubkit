@@ -9,8 +9,7 @@ const vm = require('node:vm');
 
 function createHubkit(environment, fetch, globals = {}) {
   const context = {
-    self: {}, lrucache: require('lru-cache'), URL, Headers: globalThis.Headers,
-    AbortController, DOMException, Date,
+    self: {}, lrucache: require('lru-cache'), URL, Headers, AbortController, DOMException, Date,
     setTimeout, clearTimeout, fetch, ...globals
   };
   if (environment === 'Node') Object.assign(context, {process, module: {exports: {}}});

@@ -294,7 +294,7 @@ if (typeof require !== 'undefined') {
                 const entry = {...cachedItem, expiry: parseExpiry(res.headers)};
                 if (res.headers.has('x-oauth-scopes')) {
                   // Preserve the body and unrelated headers while retaining the latest scopes.
-                  entry.headers = new globalThis.Headers(cachedItem.headers);
+                  entry.headers = new Headers(cachedItem.headers);
                   entry.headers.set('x-oauth-scopes', res.headers.get('x-oauth-scopes'));
                   entry.timestamp = res.timestamp;
                 }

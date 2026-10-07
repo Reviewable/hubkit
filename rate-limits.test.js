@@ -19,8 +19,7 @@ function quotaHeaders(resource = 'core', remaining = 4500) {
 function createHubkit(responses) {
   const state = {now: NOW, requests: []};
   const browser = {
-    self: {}, lrucache: require('lru-cache'), URL, Headers: globalThis.Headers,
-    AbortController, DOMException,
+    self: {}, lrucache: require('lru-cache'), URL, Headers, AbortController, DOMException,
     Date: class extends Date { static now() {return state.now;} },
     setTimeout: (...args) => setTimeout(...args),
     clearTimeout: (...args) => clearTimeout(...args),
