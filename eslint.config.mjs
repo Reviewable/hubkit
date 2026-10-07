@@ -12,6 +12,7 @@ export default [
         clearTimeout: false,
         DOMException: false,
         fetch: false,
+        Headers: false,
         Promise: false,
         setTimeout: false,
         URL: false

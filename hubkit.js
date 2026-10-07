@@ -283,17 +283,22 @@ if (typeof require !== 'undefined') {
         }
 
         const onComplete = (res, rawData) => {
-          if (res.status !== 304) extractMetadata(res.headers, options.metadata);
-
           try {
             if (res.status === 304) {
               // Backfill metadata like x-oauth-scopes, but never replay cached quota observations.
               // Cache keys include the token, so user-specific headers are safe to replay.
-              extractMetadata(cachedItem.headers, options.metadata);
-              extractMetadata(res.headers, options.metadata);
+              extractMetadata(cachedItem.headers, options.metadata, cachedItem.timestamp);
+              extractMetadata(res.headers, options.metadata, res.timestamp);
               // Restore our in-flight entry without overwriting a newer concurrent request.
               if (options.cache.get(cacheKey) === cacheEntry) {
-                options.cache.set(cacheKey, {...cachedItem, expiry: parseExpiry(res.headers)});
+                const entry = {...cachedItem, expiry: parseExpiry(res.headers)};
+                if (res.headers.has('x-oauth-scopes')) {
+                  // Preserve the body and unrelated headers while retaining the latest scopes.
+                  entry.headers = new Headers(cachedItem.headers);
+                  entry.headers.set('x-oauth-scopes', res.headers.get('x-oauth-scopes'));
+                  entry.timestamp = res.timestamp;
+                }
+                options.cache.set(cacheKey, entry);
               }
               if (options.stats) options.stats.record(true, cachedItem.size);
               resolve(attachFreshNext(cachedItem.value, this, options));
@@ -517,7 +522,8 @@ if (typeof require !== 'undefined') {
                     size <= options.cache.maxSize * options.maxItemSizeRatio) {
                   options.cache.set(cacheKey, {
                     value: result, eTag: res.headers.get('etag'), status: res.status,
-                    headers: res.headers, size, expiry: parseExpiry(res.headers)
+                    headers: res.headers, timestamp: res.timestamp, size,
+                    expiry: parseExpiry(res.headers)
                   });
                 }
               }
@@ -788,6 +794,7 @@ if (typeof require !== 'undefined') {
     flight.users.add(user);
     let timeoutId;
     try {
+      extractMetadata(flight.headers, metadata, flight.timestamp);
       if (metadata && flight.quota) {
         const {values, timestampKey} = flight.quota;
         // A late joiner observes the original headers without refreshing or regressing quota.
@@ -835,12 +842,13 @@ if (typeof require !== 'undefined') {
     try {
       try {
         response = await fetch(url, init);
+        flight.headers = response.headers;
+        flight.timestamp = Date.now();
         // Record quota in header-arrival order, before slow or failing body reads can reorder it.
         flight.quota = extractQuotaMetadata(config.url, response.headers);
-        if (flight.quota) {
-          for (const {metadata} of flight.users) {
-            if (metadata) Object.assign(metadata, flight.quota.values);
-          }
+        for (const {metadata} of flight.users) {
+          extractMetadata(response.headers, metadata, flight.timestamp, true);
+          if (metadata && flight.quota) Object.assign(metadata, flight.quota.values);
         }
         rawData = await readResponseBody(response, options);
       } catch (error) {
@@ -851,7 +859,10 @@ if (typeof require !== 'undefined') {
       call = {api, cost: api === 'graph' ? undefined : 1};
       const data = parseResponseData(rawData, response.headers, options, response.status);
       if (api === 'graph') call.cost = data?.data?.rateLimit?.cost;
-      return {status: response.status, headers: response.headers, rawData, data};
+      return {
+        status: response.status, headers: response.headers, timestamp: flight.timestamp,
+        rawData, data
+      };
     } finally {
       // The initiating callback belongs to the transport, even after its caller times out.
       // A callback exception rejects this fetch for every caller still waiting.
@@ -908,11 +919,14 @@ if (typeof require !== 'undefined') {
     }
   }
 
-  function extractMetadata(headers, metadata) {
+  function extractMetadata(headers, metadata, timestamp, current = false) {
     if (!(headers && metadata)) return;
     // Not every response includes an X-OAuth-Scopes header, so keep the last known set if
-    // missing.
-    if (headers.has('x-oauth-scopes')) {
+    // missing. Current headers win in arrival order, even when timestamps tie; replays must
+    // be strictly newer than the observation already recorded in metadata.
+    if (headers.has('x-oauth-scopes') &&
+        (current || !(metadata.oAuthScopesTimestamp >= timestamp))) {
+      metadata.oAuthScopesTimestamp = timestamp;
       metadata.oAuthScopes = [];
       const scopes = (headers.get('x-oauth-scopes') || '').split(/\s*,\s*/);
       if (!(scopes.length === 1 && scopes[0] === '')) {

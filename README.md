@@ -138,6 +138,16 @@ For shared fetches, every waiting caller receives the quota observation when hea
 A caller joining while the body is still pending receives the original observation timestamp;
 joining never replaces an equal-time or newer quota observation already in that caller's metadata.
 
+`oAuthScopesTimestamp` records when the `x-oauth-scopes` header was received, in milliseconds
+since the Unix epoch. Scopes and their timestamp update together, before reading the body,
+including on HTTP errors and for callers sharing a fetch. A missing scope header leaves both
+fields unchanged, even when quota headers are present. An empty scope header records an empty
+array. Newly received scope headers update metadata in arrival order, even if timestamps tie.
+Scope observations from late joiners or cached headers never replace an equal-time or newer
+scope observation. A `304` may restore cached scopes with their original timestamp;
+only an explicit scope header on the `304` gives them a new timestamp, which is retained with
+the updated scopes for later revalidations.
+
 Since 9.1.0, missing quota headers no longer assign `null` or an empty string to quota fields.
 Before the first valid observation, quota properties may be absent entirely. A partial observation
 creates the bucket's fields, with missing or invalid values set to `undefined`. Check whether a
@@ -238,7 +248,7 @@ in NodeJS.
 * `timeout`: The timeout in milliseconds for each attempt, including waiting for a shared fetch; none by default.  Each caller runs its own `onSend` to override this timeout, then enforces the resulting budget independently.  Zero produces a `TimeoutError` immediately before sending or joining, invoking `onError` but not `onReceive`.  It rejects by default; `onError` can recover or explicitly request a retry within `maxTries`.  A positive timeout follows the caller's normal network-error/retry policy.  Timing out does not abort a fetch while another caller is waiting; a pending fetch is aborted when its last caller leaves.  An already completed cached response is returned regardless of the timeout.
 * `cache`: An instance of [LRUCache](https://github.com/isaacs/node-lru-cache).  The
 objects inserted into the cache will be of the form
-`{value: {...}, eTag: 'abc123', status: 200, headers: {...}, size: 1763, expiry: 1770853094}`.
+`{value: {...}, eTag: 'abc123', status: 200, headers: {...}, timestamp: 1770853000000, size: 1763, expiry: 1770853094}`.
 You can use the (approximate) `size` field to help your cache determine when to evict items, but note that it tends to underestimate the actual size size of the object by 3-4x.  The
 default cache is set to hold ~10MB of the measured bytes amount (so ~30-40MB of actual memory usage).
 While requests are being processed, the cache can also contain internal `{pending: number, cachedItem?: object, size: 100}` entries.  `cachedItem` retains the previous completed cache entry, when present, for conditional requests and 304 restoration.  Concurrent callers share individual fetches and raw response bodies, but run their own preparation callbacks, JSON parsing, pagination, and error/retry policies.  The initiating caller owns the transport-level `onReceive` callback.  The initiating caller reuses the transport's parsed response; joiners parse separate copies so pagination and error-handler mutations cannot affect another caller.  Pending entries are removed when all their callers finish unless replaced by a completed response; rejected promises are never cached.
