@@ -50,6 +50,47 @@ function createHubkit(responses) {
   return {Hubkit: browser.self.Hubkit, state};
 }
 
+for (const status of [200, 403, 429]) {
+  test(`scope timestamps change only on explicit scope headers after HTTP ${status}`, async () => {
+    const {Hubkit} = createHubkit([
+      {headers: {'x-oauth-scopes': 'repo, repo, read:org'}},
+      {headers: quotaHeaders(), now: NOW + 1000},
+      {status, headers: {'x-oauth-scopes': ''}, now: NOW + 2000}
+    ]);
+    const metadata = {}, gh = new Hubkit({metadata, cache: null, maxTries: 1});
+    await gh.request('/repos/o/r');
+    assert.equal(metadata.oAuthScopes.join(','), 'read:org,repo');
+    assert.equal(metadata.oAuthScopesTimestamp, NOW);
+    await gh.request('/repos/o/r');
+    assert.equal(metadata.oAuthScopesTimestamp, NOW);
+    assert.equal(metadata.rateLimitTimestamp, NOW + 1000);
+    const request = gh.request('/repos/o/r', {onError() {
+      assert.equal(metadata.oAuthScopes.length, 0);
+      assert.equal(metadata.oAuthScopesTimestamp, NOW + 2000);
+    }});
+    if (status === 200) await request;
+    else await assert.rejects(request, error => error.status === status);
+    assert.equal(metadata.oAuthScopes.length, 0);
+    assert.equal(metadata.oAuthScopesTimestamp, NOW + 2000);
+  });
+}
+
+test('late response bodies cannot replace newer scopes', async () => {
+  const delayed = Promise.withResolvers(), reading = Promise.withResolvers();
+  const {Hubkit} = createHubkit([
+    {headers: {'x-oauth-scopes': 'repo'}, bodyWait: delayed.promise, reading},
+    {headers: {'x-oauth-scopes': 'public_repo'}, now: NOW + 1000}
+  ]);
+  const metadata = {}, gh = new Hubkit({metadata, cache: null});
+  const older = gh.request('/repos/o/r');
+  await reading.promise;
+  await gh.request('/repos/o/r');
+  delayed.resolve();
+  await older;
+  assert.equal(metadata.oAuthScopes.join(','), 'public_repo');
+  assert.equal(metadata.oAuthScopesTimestamp, NOW + 1000);
+});
+
 for (const [resource, prefix, path] of [
   ['core', 'rateLimit', '/repos/o/r'],
   ['search', 'searchRateLimit', '/search/issues'],
@@ -257,13 +298,28 @@ test('304 revalidation restores scopes but uses only the current response for qu
   const metadata = {};
   await gh.request('/repos/o/r', {fresh: true, metadata});
   assert.equal(metadata.oAuthScopes.join(','), 'repo');
+  assert.equal(metadata.oAuthScopesTimestamp, NOW);
   assert.equal(metadata.rateLimitRemaining, 4000);
   assert.equal(metadata.rateLimitTimestamp, NOW + 1000);
   const otherMetadata = {};
   await gh.request('/repos/o/r', {fresh: true, metadata: otherMetadata});
   assert.equal(otherMetadata.oAuthScopes.join(','), 'repo');
+  assert.equal(otherMetadata.oAuthScopesTimestamp, NOW);
   assert.equal(otherMetadata.rateLimitRemaining, undefined);
   assert.equal(otherMetadata.rateLimitTimestamp, undefined);
+});
+
+test('a 304 scope header replaces cached scopes with a new observation', async () => {
+  const {Hubkit} = createHubkit([
+    {headers: {etag: 'test-etag', 'x-oauth-scopes': 'repo'}},
+    {status: 304, headers: {'x-oauth-scopes': ''}, now: NOW + 1000}
+  ]);
+  const gh = new Hubkit();
+  await gh.request('/repos/o/r');
+  const metadata = {};
+  await gh.request('/repos/o/r', {fresh: true, metadata});
+  assert.equal(metadata.oAuthScopes.length, 0);
+  assert.equal(metadata.oAuthScopesTimestamp, NOW + 1000);
 });
 
 test('automatic pagination leaves the final page quota observation in metadata', async () => {

@@ -47,6 +47,7 @@ interface CachedResponse {
   eTag?: string;
   status: number;
   headers: any;
+  timestamp?: number;
   size: number;
   expiry?: number;
 }
@@ -143,5 +144,7 @@ export interface Metadata {
   graphRateLimitResetTimestamp?: number;
   graphRateLimitTimestamp?: number;
   oAuthScopes?: string[];
+  /** Time the OAuth scope header was observed, in milliseconds since the Unix epoch. */
+  oAuthScopesTimestamp?: number;
   contentType?: string;
 }

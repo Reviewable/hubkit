@@ -107,13 +107,17 @@ for (const environment of ['Node', 'browser']) {
           onReceive: receive,
           onError() {assert.equal(value.rateLimitRemaining, 42);}
         }));
-        const response = json({ok: true}, 200, {'x-ratelimit-remaining': '42'});
+        const response = json({ok: true}, 200, {
+          'x-ratelimit-remaining': '42', 'x-oauth-scopes': 'repo'
+        });
         response.text = () => bodyReady.promise;
         headersReady.resolve(response);
         await new Promise(setImmediate);
         for (const value of metadata.slice(0, 2)) {
           assert.equal(value.rateLimitRemaining, 42);
           assert.equal(value.rateLimitTimestamp, 1000);
+          assert.equal(value.oAuthScopes.join(','), 'repo');
+          assert.equal(value.oAuthScopesTimestamp, 1000);
         }
         assert.equal(receive.mock.callCount(), 0);
         now = 2000;
@@ -122,13 +126,18 @@ for (const environment of ['Node', 'browser']) {
         await new Promise(setImmediate);
         assert.equal(metadata[2].rateLimitRemaining, 42);
         assert.equal(metadata[2].rateLimitTimestamp, 1000);
+        assert.equal(metadata[2].oAuthScopes.join(','), 'repo');
+        assert.equal(metadata[2].oAuthScopesTimestamp, 1000);
         if (bodyFails) bodyReady.reject(new Error('Body failed'));
         else bodyReady.resolve('{"ok":true}');
         for (const result of await results) {
           if (bodyFails) assert.match(result.reason.message, /Body failed/);
           else assert.equal(result.value.ok, true);
         }
-        for (const value of metadata) assert.equal(value.rateLimitTimestamp, 1000);
+        for (const value of metadata) {
+          assert.equal(value.rateLimitTimestamp, 1000);
+          assert.equal(value.oAuthScopesTimestamp, 1000);
+        }
         assert.equal(receive.mock.callCount(), 1);
         assert.equal(receive.mock.calls[0].arguments[1], 1000);
         assert.equal(receive.mock.calls[0].arguments[0]?.cost, bodyFails ? undefined : 1);
@@ -142,7 +151,8 @@ for (const environment of ['Node', 'browser']) {
     const bodyReady = Promise.withResolvers();
     const fetch = t.mock.fn(async url => {
       const response = json({}, 200, {
-        'x-ratelimit-remaining': url.pathname === '/older' ? '42' : '41'
+        'x-ratelimit-remaining': url.pathname === '/older' ? '42' : '41',
+        'x-oauth-scopes': url.pathname === '/older' ? 'repo' : 'public_repo'
       });
       if (url.pathname === '/older') response.text = () => bodyReady.promise;
       return response;
@@ -157,10 +167,14 @@ for (const environment of ['Node', 'browser']) {
     await new Promise(setImmediate);
     assert.equal(metadata.rateLimitRemaining, 41);
     assert.equal(metadata.rateLimitTimestamp, 2000);
+    assert.equal(metadata.oAuthScopes.join(','), 'public_repo');
+    assert.equal(metadata.oAuthScopesTimestamp, 2000);
     bodyReady.resolve('{}');
     await Promise.all([original, joining]);
     assert.equal(metadata.rateLimitRemaining, 41);
     assert.equal(metadata.rateLimitTimestamp, 2000);
+    assert.equal(metadata.oAuthScopes.join(','), 'public_repo');
+    assert.equal(metadata.oAuthScopesTimestamp, 2000);
     assert.equal(fetch.mock.callCount(), 2);
   });
 
