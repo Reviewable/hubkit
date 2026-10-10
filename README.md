@@ -288,10 +288,25 @@ Rate-limited `403` and `429` responses follow the same retry rules: `Retry-After
 otherwise, exhausted quota (`x-ratelimit-remaining: 0`) with `x-ratelimit-reset` determines the
 delay. Both headers must contain nonnegative integer seconds (`x-ratelimit-reset` since the Unix
 epoch); HTTP-date `Retry-After` values are unsupported. Invalid values and delays exceeding the
-timer limit of 2,147,483,647 milliseconds do not trigger automatic retries or set `error.retryDelay`.
+timer limit of 2,147,483,647 milliseconds are ignored. Explicit secondary-limit messages fall back
+to a 60-second delay when no usable delay is available; other errors have no `error.retryDelay`
+in that case.
 Automatic retries respect `maxTries` and require the delay to fit within `timeout` when
 one is set. `error.retryDelay` contains the computed delay in milliseconds before `onError` runs,
 including when the handler suppresses retries, and remains available if the request rejects.
+
+`error.retryType` classifies these errors before `onError` runs and remains on rejected errors:
+
+* `'secondary'`: the message contains `secondary rate limit` (case-insensitive), or a valid
+  `Retry-After` supplies the delay. This takes precedence even if primary quota is also exhausted.
+* `'primary'`: otherwise, exhausted-quota headers, a `rate limit ... exceeded` message, or HTTP 429.
+  The classification is available even when no usable reset time is supplied.
+* `undefined`: other errors, including unrelated HTTP 403 responses.
+
+The classification describes the rate limit, not whether retrying the operation is safe. Automatic
+retries still require an idempotent operation; mutations require the existing explicit opt-in.
+When both limits apply, callers can also inspect the exhausted primary bucket's reset header.
+
 * `maxTries`: The maximum number of times that a request will be tried (including the original call) if `onError` keeps returning `Hubkit.RETRY`.
 * `onSend`: A function called before each caller's attempt, including attempts that join an existing fetch.  The sole argument indicates the reason: `initial`, `page` for an automatic next page, or `retry` for an explicit or automatic retry.  Sharing is determined after this callback completes.  The function can return a duration in milliseconds that overrides the options timeout.  Returning `0` invokes `onError` immediately with a `TimeoutError`, without sending or joining a fetch or invoking `onReceive`; see `timeout` above for recovery/retry behavior.  Returning `undefined` or `null` keeps the options timeout.  The function can also return a promise for the above; that caller waits for it before proceeding.
 * `onReceive`: A function called once per physical fetch, after its response body finishes or its transport fails or aborts.  Only the initiating caller's callback runs, even if that caller has already timed out while other callers keep the fetch alive.  An individual caller timing out does not invoke it while the transport continues.  The first argument is an object with `api` (the quota pool) and `cost` (quota used), or `undefined` when no complete response was received.  GraphQL cost may be zero or unknown.  The second argument is the physical fetch latency in milliseconds, measured after `onSend` completes and through the body read or transport failure/abort.  A thrown exception rejects the shared attempt for every caller still waiting; each caller applies its own `onError` and retry policy.  The callback is not invoked again for its own exception.  Response metadata is copied into each caller's `metadata` object independently.  The function's return value is discarded.  Completed cache hits and zero timeouts that prevent sending invoke no `onReceive`.

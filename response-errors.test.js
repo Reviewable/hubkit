@@ -44,17 +44,18 @@ for (const [message, expectedStatus] of [
   });
 }
 
-for (const {name, type, message = name, status, headers, attempts, retryDelay} of [
+for (const {name, type, message = name, status, headers, attempts, retryDelay, retryType} of [
   {name: 'server failure', message: 'Something went wrong', status: 500, attempts: 3},
   {
     name: 'secondary rate limit', type: 'RATE_LIMITED', status: 403,
-    headers: {'retry-after': '0'}, attempts: 3, retryDelay: 0
+    headers: {'retry-after': '0'}, attempts: 3, retryDelay: 0, retryType: 'secondary'
   },
   {
     name: 'exhausted quota', type: 'RATE_LIMIT', status: 403,
-    headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0
+    headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0, retryType: 'primary'
   },
-  {name: 'forbidden without retry headers', type: 'FORBIDDEN', status: 403, attempts: 1},
+  {name: 'forbidden without retry headers', type: 'FORBIDDEN', status: 403, attempts: 1,
+    retryType: 'primary'},
   {name: 'not found', type: 'NOT_FOUND', status: 404, attempts: 1},
   {name: 'validation failure', status: 400, attempts: 1}
 ]) {
@@ -67,12 +68,14 @@ for (const {name, type, message = name, status, headers, attempts, retryDelay} o
         callbacks++;
         assert.equal(error.status, status);
         assert.equal(error.response.status, 200);
+        assert.equal(error.retryType, retryType);
       }
     }), error => {
       assert.equal(error.status, status);
       assert.equal(error.response.status, 200);
       assert.equal(error.response.rawData, body);
       assert.equal(error.retryDelay, retryDelay);
+      assert.equal(error.retryType, retryType);
       return true;
     });
     assert.equal(requests(), attempts);

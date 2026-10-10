@@ -171,7 +171,7 @@ if (typeof require !== 'undefined') {
       if (/access blocked/i.test(message)) {
         return {code: 'access-blocked', category: 'notfound', error: 'Repository access blocked'};
       }
-      if (/You have exceeded a secondary rate limit/.test(message)) {
+      if (/\bsecondary rate limit\b/i.test(message)) {
         return {code: 'secondary-rate-limit', quota: true};
       }
       if (/rate limit|request quota|abuse detection/i.test(message)) {
@@ -232,16 +232,23 @@ if (typeof require !== 'undefined') {
           if (rateLimited) {
             const retryAfter = res.headers.get('retry-after');
             const reset = res.headers.get('x-ratelimit-reset');
+            const exhausted = /^0+$/.test(res.headers.get('x-ratelimit-remaining')?.trim());
+            const secondary = Hubkit.identify403Error(error)?.code === 'secondary-rate-limit';
             let delay;
             if (retryAfter) {
               if (/^\d+$/.test(retryAfter)) delay = Number(retryAfter) * 1000;
-            } else if (/^0+$/.test(res.headers.get('x-ratelimit-remaining')?.trim()) &&
-                /^\d+$/.test(reset)) {
+            } else if (exhausted && /^\d+$/.test(reset)) {
               delay = Math.max(0, Number(reset) * 1000 - Date.now());
             }
             // Invalid and overflowing timer delays can otherwise trigger immediate retries.
             if (Number.isSafeInteger(delay) && delay >= 0 && delay <= 2_147_483_647) {
               error.retryDelay = delay;
+            }
+            if (secondary || retryAfter && error.retryDelay !== undefined) {
+              error.retryType = 'secondary';
+              error.retryDelay ??= 60_000;
+            } else if (exhausted || /rate limit.*exceeded/i.test(error.message) || status === 429) {
+              error.retryType = 'primary';
             }
           }
           let value;
