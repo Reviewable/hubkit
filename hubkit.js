@@ -171,14 +171,15 @@ if (typeof require !== 'undefined') {
       if (/access blocked/i.test(message)) {
         return {code: 'access-blocked', category: 'notfound', error: 'Repository access blocked'};
       }
+      // Structured errors must all be rate limits; one quota message cannot mask another failure.
+      const quota = error?.errors ? error.errors.length && error.errors.every(item =>
+        item.type === 'RATE_LIMIT' || item.type === 'RATE_LIMITED') :
+        /rate limit|request quota|abuse detection/i.test(message);
+      if (!quota) return;
       if (/\bsecondary rate limit\b/i.test(message)) {
         return {code: 'secondary-rate-limit', quota: true};
       }
-      if (/rate limit|request quota|abuse detection/i.test(message) ||
-          error?.errors?.length && error.errors.every(item =>
-            item.type === 'RATE_LIMIT' || item.type === 'RATE_LIMITED')) {
-        return {code: 'rate-limit', quota: true};
-      }
+      return {code: 'rate-limit', quota: true};
     }
 
     scope(options) {
@@ -230,11 +231,11 @@ if (typeof require !== 'undefined') {
           if (cacheable && res) {
             if (options.stats) options.stats.record(shared);
           }
-          if ([403, 429].includes(status)) {
+          const reason = Hubkit.identify403Error(error);
+          if ([403, 429].includes(status) && (!error.errors || reason?.quota)) {
             const retryAfter = res.headers.get('retry-after');
             const reset = res.headers.get('x-ratelimit-reset');
             const exhausted = /^0+$/.test(res.headers.get('x-ratelimit-remaining')?.trim());
-            const reason = Hubkit.identify403Error(error);
             // Invalid and overflowing timer delays can otherwise trigger immediate retries.
             const [retryAfterDelay, resetDelay] = [
               /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : undefined,

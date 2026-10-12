@@ -114,6 +114,30 @@ for (const types of [
     });
 }
 
+for (const message of ['API rate limit exceeded', 'You have exceeded a secondary rate limit.']) {
+  for (const status of [200, 403, 429]) {
+    for (const retryAfter of [false, true]) {
+      test(`mixed GraphQL errors reject quota wording (${message}, ${status}, ${retryAfter})`,
+        async () => {
+          const body = JSON.stringify({errors: [
+            {type: 'RATE_LIMIT', message}, {type: 'FORBIDDEN', message: 'Resource not accessible'}
+          ]});
+          const {Hubkit, requests} = createHubkit(status, body, 'application/json', {
+            'x-ratelimit-reset': '1', ...(retryAfter ? {'retry-after': '0'} : {})
+          });
+          await assert.rejects(new Hubkit().graph('query { viewer { login } }'), error => {
+            assert.equal(error.status, status === 200 ? 403 : status);
+            assert.equal(Hubkit.identify403Error(error), undefined);
+            assert.equal(error.retryType, undefined);
+            assert.equal(error.retryDelay, undefined);
+            return true;
+          });
+          assert.equal(requests(), 1);
+        });
+    }
+  }
+}
+
 for (const [type, message, status] of [
   [undefined, 'Something went wrong', 500], ['RATE_LIMITED', 'Rate limit exceeded', 403]
 ]) {
