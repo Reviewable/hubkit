@@ -62,6 +62,10 @@ for (const status of [403, 429]) {
     ['API rate limit exceeded', quotaHeaders('core', 0), 'primary', 3_600_000],
     ['rate limit of 5000 exceeded', quotaHeaders('core', 0), 'primary', 3_600_000],
     ['API RATE LIMIT EXCEEDED', {'x-ratelimit-remaining': '0'}, 'primary', undefined],
+    ['Your request quota is exhausted.', {}, status === 429 ? 'primary' : undefined, undefined],
+    ['Your request quota is exhausted.', quotaHeaders(),
+      status === 429 ? 'primary' : undefined, undefined],
+    ['Your request quota is exhausted.', {'x-ratelimit-remaining': '0'}, 'primary', undefined],
     ['API rate limit exceeded', {'retry-after': '2'}, 'secondary', 2000],
     ['API rate limit exceeded', {...quotaHeaders('core', 0), 'retry-after': '2'},
       'secondary', 2000],
@@ -88,6 +92,32 @@ for (const status of [403, 429]) {
         return true;
       });
       assert.equal(state.requests.length, 1);
+    });
+  }
+
+  for (const message of [
+    'Your request quota is exhausted.', 'Your REQUEST QUOTA is exhausted.',
+    'You have triggered an abuse detection mechanism.'
+  ]) {
+    test(`HTTP ${status} retries recognized legacy quota message: ${message}`, async t => {
+      t.mock.timers.enable({apis: ['setTimeout']});
+      const {Hubkit, state} = createHubkit([
+        {status, headers: {
+          ...quotaHeaders('core', 0), 'x-ratelimit-reset': String(NOW / 1000 + 4)
+        }, body: {message}}, {}
+      ]);
+      const failed = Promise.withResolvers();
+      const request = new Hubkit().request('/repos/o/r', {
+        onError: error => {failed.resolve(error);}
+      });
+      const error = await failed.promise;
+      assert.equal(error.retryType, 'primary');
+      assert.equal(error.retryDelay, 4000);
+      t.mock.timers.tick(3999);
+      assert.equal(state.requests.length, 1);
+      t.mock.timers.tick(1);
+      await request;
+      assert.equal(state.requests.length, 2);
     });
   }
 
@@ -128,6 +158,7 @@ for (const message of [
   'Your account was suspended.',
   'Your email address must be verified.',
   'Resource protected by organization SAML enforcement.',
+  'SAML enforcement blocked access. Your request quota is exhausted.',
   'You must have admin rights to access this repository.',
   'You must enable two-factor authentication.',
   'This organization has enabled OAuth App access restrictions.',

@@ -300,8 +300,8 @@ including when the handler suppresses retries, and remains available if the requ
 
 * `'secondary'`: the message contains `secondary rate limit` (case-insensitive), or a valid
   `Retry-After` supplies the delay. This takes precedence even if primary quota is also exhausted.
-* `'primary'`: otherwise, both exhausted quota and a `rate limit ... exceeded` message
-  (case-insensitive), or HTTP 429.
+* `'primary'`: otherwise, both exhausted quota and a quota message recognized by
+  `identify403Error` (including legacy `request quota` and `abuse detection` wording), or HTTP 429.
   The classification is available even when no usable reset time is supplied.
 * `undefined`: other errors, including unrelated HTTP 403 responses even when quota is exhausted.
   These errors have no `retryDelay` and are not automatically retried.

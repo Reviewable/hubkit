@@ -232,7 +232,7 @@ if (typeof require !== 'undefined') {
             const retryAfter = res.headers.get('retry-after');
             const reset = res.headers.get('x-ratelimit-reset');
             const exhausted = /^0+$/.test(res.headers.get('x-ratelimit-remaining')?.trim());
-            const secondary = Hubkit.identify403Error(error)?.code === 'secondary-rate-limit';
+            const reason = Hubkit.identify403Error(error);
             // Invalid and overflowing timer delays can otherwise trigger immediate retries.
             const [retryAfterDelay, resetDelay] = [
               /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : undefined,
@@ -243,10 +243,10 @@ if (typeof require !== 'undefined') {
             if (retryAfterDelay !== undefined) {
               error.retryType = 'secondary';
               error.retryDelay = retryAfterDelay;
-            } else if (secondary) {
+            } else if (reason?.code === 'secondary-rate-limit') {
               error.retryType = 'secondary';
               error.retryDelay = resetDelay ?? 60_000;
-            } else if (exhausted && /rate limit.*exceeded/i.test(error.message) || status === 429) {
+            } else if (exhausted && reason?.quota || status === 429) {
               error.retryType = 'primary';
               error.retryDelay = resetDelay;
             }
