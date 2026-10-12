@@ -174,7 +174,9 @@ if (typeof require !== 'undefined') {
       if (/\bsecondary rate limit\b/i.test(message)) {
         return {code: 'secondary-rate-limit', quota: true};
       }
-      if (/rate limit|request quota|abuse detection/i.test(message)) {
+      if (/rate limit|request quota|abuse detection/i.test(message) ||
+          error?.errors?.length && error.errors.every(item =>
+            item.type === 'RATE_LIMIT' || item.type === 'RATE_LIMITED')) {
         return {code: 'rate-limit', quota: true};
       }
     }

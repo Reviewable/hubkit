@@ -302,6 +302,9 @@ including when the handler suppresses retries, and remains available if the requ
   `Retry-After` supplies the delay. This takes precedence even if primary quota is also exhausted.
 * `'primary'`: otherwise, both exhausted quota and a quota message recognized by
   `identify403Error` (including legacy `request quota` and `abuse detection` wording), or HTTP 429.
+  GraphQL errors consisting entirely of `RATE_LIMIT`/`RATE_LIMITED` types also identify quota
+  errors independently of their messages; exhausted quota is still required. These types alone
+  do not imply a secondary limit.
   The classification is available even when no usable reset time is supplied.
 * `undefined`: other errors, including unrelated HTTP 403 responses even when quota is exhausted.
   These errors have no `retryDelay` and are not automatically retried.

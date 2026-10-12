@@ -51,7 +51,11 @@ for (const {name, type, message = name, status, headers, attempts, retryDelay, r
     headers: {'retry-after': '0'}, attempts: 3, retryDelay: 0, retryType: 'secondary'
   },
   {
-    name: 'exhausted quota', message: 'API rate limit exceeded', type: 'RATE_LIMIT', status: 403,
+    name: 'exhausted quota', type: 'RATE_LIMIT', status: 403,
+    headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0, retryType: 'primary'
+  },
+  {
+    name: 'structured exhausted quota', type: 'RATE_LIMITED', status: 403,
     headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0, retryType: 'primary'
   },
   {name: 'forbidden without retry headers', type: 'FORBIDDEN', status: 403, attempts: 1},
@@ -82,6 +86,32 @@ for (const {name, type, message = name, status, headers, attempts, retryDelay, r
     assert.equal(requests(), attempts);
     assert.equal(callbacks, attempts);
   });
+}
+
+for (const types of [
+  ['RATE_LIMIT'], ['RATE_LIMITED'], ['RATE_LIMIT', 'RATE_LIMITED'],
+  ['FORBIDDEN'], ['INSUFFICIENT_SCOPES'], ['RATE_LIMIT', 'FORBIDDEN'],
+  ['RATE_LIMITED', 'INSUFFICIENT_SCOPES']
+]) {
+  test(`GraphQL structured ${types.join('/')} requires exhaustion and no unrelated errors`,
+    async () => {
+      const errors = types.map(type => ({type, message: 'Request cannot proceed.'}));
+      for (const remaining of ['0', '1']) {
+        const {Hubkit, requests} = createHubkit(200, JSON.stringify({errors}), 'application/json', {
+          'x-ratelimit-remaining': remaining, 'x-ratelimit-reset': '1'
+        });
+        const primary = remaining === '0' &&
+          types.every(type => ['RATE_LIMIT', 'RATE_LIMITED'].includes(type));
+        await assert.rejects(new Hubkit().graph('query { viewer { login } }'), error => {
+          assert.equal(error.status, 403);
+          assert.equal(error.response.status, 200);
+          assert.equal(error.retryType, primary ? 'primary' : undefined);
+          assert.equal(error.retryDelay, primary ? 0 : undefined);
+          return true;
+        });
+        assert.equal(requests(), primary ? 3 : 1);
+      }
+    });
 }
 
 for (const [type, message, status] of [
