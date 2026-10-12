@@ -284,12 +284,13 @@ synthesized `error.status`, which also controls automatic retries; `error.respon
 the original HTTP status.  If the function returns `undefined`, the promise will
 be rejected as usual (or the request retried in some special cases, like network failures and rate-limited 403s or 429s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.
 
-Rate-limited `403` and `429` responses follow the same retry rules: `Retry-After` takes precedence;
+Rate-limited `403` and `429` responses follow the same retry rules: a valid `Retry-After` takes precedence;
 otherwise, exhausted quota (`x-ratelimit-remaining: 0`) with `x-ratelimit-reset` determines the
 delay. Both headers must contain nonnegative integer seconds (`x-ratelimit-reset` since the Unix
 epoch); HTTP-date `Retry-After` values are unsupported. Invalid values and delays exceeding the
-timer limit of 2,147,483,647 milliseconds are ignored. Explicit secondary-limit messages fall back
-to a 60-second delay when no usable delay is available; other errors have no `error.retryDelay`
+timer limit of 2,147,483,647 milliseconds are ignored, allowing fallback to a usable quota reset.
+Explicit secondary-limit messages fall back to a 60-second delay when no usable delay is available;
+other errors have no `error.retryDelay`
 in that case.
 Automatic retries respect `maxTries` and require the delay to fit within `timeout` when
 one is set. `error.retryDelay` contains the computed delay in milliseconds before `onError` runs,
@@ -299,9 +300,11 @@ including when the handler suppresses retries, and remains available if the requ
 
 * `'secondary'`: the message contains `secondary rate limit` (case-insensitive), or a valid
   `Retry-After` supplies the delay. This takes precedence even if primary quota is also exhausted.
-* `'primary'`: otherwise, exhausted-quota headers, a `rate limit ... exceeded` message, or HTTP 429.
+* `'primary'`: otherwise, both exhausted quota and a `rate limit ... exceeded` message
+  (case-insensitive), or HTTP 429.
   The classification is available even when no usable reset time is supplied.
-* `undefined`: other errors, including unrelated HTTP 403 responses.
+* `undefined`: other errors, including unrelated HTTP 403 responses even when quota is exhausted.
+  These errors have no `retryDelay` and are not automatically retried.
 
 The classification describes the rate limit, not whether retrying the operation is safe. Automatic
 retries still require an idempotent operation; mutations require the existing explicit opt-in.

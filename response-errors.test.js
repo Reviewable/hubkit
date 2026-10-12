@@ -51,11 +51,12 @@ for (const {name, type, message = name, status, headers, attempts, retryDelay, r
     headers: {'retry-after': '0'}, attempts: 3, retryDelay: 0, retryType: 'secondary'
   },
   {
-    name: 'exhausted quota', type: 'RATE_LIMIT', status: 403,
+    name: 'exhausted quota', message: 'API rate limit exceeded', type: 'RATE_LIMIT', status: 403,
     headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0, retryType: 'primary'
   },
-  {name: 'forbidden without retry headers', type: 'FORBIDDEN', status: 403, attempts: 1,
-    retryType: 'primary'},
+  {name: 'forbidden without retry headers', type: 'FORBIDDEN', status: 403, attempts: 1},
+  {name: 'forbidden with exhausted quota', type: 'FORBIDDEN', status: 403, attempts: 1,
+    headers: {'x-ratelimit-reset': '1'}},
   {name: 'not found', type: 'NOT_FOUND', status: 404, attempts: 1},
   {name: 'validation failure', status: 400, attempts: 1}
 ]) {
