@@ -44,17 +44,23 @@ for (const [message, expectedStatus] of [
   });
 }
 
-for (const {name, type, message = name, status, headers, attempts, retryDelay} of [
+for (const {name, type, message = name, status, headers, attempts, retryDelay, retryType} of [
   {name: 'server failure', message: 'Something went wrong', status: 500, attempts: 3},
   {
     name: 'secondary rate limit', type: 'RATE_LIMITED', status: 403,
-    headers: {'retry-after': '0'}, attempts: 3, retryDelay: 0
+    headers: {'retry-after': '0'}, attempts: 3, retryDelay: 0, retryType: 'secondary'
   },
   {
     name: 'exhausted quota', type: 'RATE_LIMIT', status: 403,
-    headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0
+    headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0, retryType: 'primary'
+  },
+  {
+    name: 'structured exhausted quota', type: 'RATE_LIMITED', status: 403,
+    headers: {'x-ratelimit-reset': '1'}, attempts: 3, retryDelay: 0, retryType: 'primary'
   },
   {name: 'forbidden without retry headers', type: 'FORBIDDEN', status: 403, attempts: 1},
+  {name: 'forbidden with exhausted quota', type: 'FORBIDDEN', status: 403, attempts: 1,
+    headers: {'x-ratelimit-reset': '1'}},
   {name: 'not found', type: 'NOT_FOUND', status: 404, attempts: 1},
   {name: 'validation failure', status: 400, attempts: 1}
 ]) {
@@ -67,17 +73,69 @@ for (const {name, type, message = name, status, headers, attempts, retryDelay} o
         callbacks++;
         assert.equal(error.status, status);
         assert.equal(error.response.status, 200);
+        assert.equal(error.retryType, retryType);
       }
     }), error => {
       assert.equal(error.status, status);
       assert.equal(error.response.status, 200);
       assert.equal(error.response.rawData, body);
       assert.equal(error.retryDelay, retryDelay);
+      assert.equal(error.retryType, retryType);
       return true;
     });
     assert.equal(requests(), attempts);
     assert.equal(callbacks, attempts);
   });
+}
+
+for (const types of [
+  ['RATE_LIMIT'], ['RATE_LIMITED'], ['RATE_LIMIT', 'RATE_LIMITED'],
+  ['FORBIDDEN'], ['INSUFFICIENT_SCOPES'], ['RATE_LIMIT', 'FORBIDDEN'],
+  ['RATE_LIMITED', 'INSUFFICIENT_SCOPES']
+]) {
+  test(`GraphQL structured ${types.join('/')} requires exhaustion and no unrelated errors`,
+    async () => {
+      const errors = types.map(type => ({type, message: 'Request cannot proceed.'}));
+      for (const remaining of ['0', '1']) {
+        const {Hubkit, requests} = createHubkit(200, JSON.stringify({errors}), 'application/json', {
+          'x-ratelimit-remaining': remaining, 'x-ratelimit-reset': '1'
+        });
+        const primary = remaining === '0' &&
+          types.every(type => ['RATE_LIMIT', 'RATE_LIMITED'].includes(type));
+        await assert.rejects(new Hubkit().graph('query { viewer { login } }'), error => {
+          assert.equal(error.status, 403);
+          assert.equal(error.response.status, 200);
+          assert.equal(error.retryType, primary ? 'primary' : undefined);
+          assert.equal(error.retryDelay, primary ? 0 : undefined);
+          return true;
+        });
+        assert.equal(requests(), primary ? 3 : 1);
+      }
+    });
+}
+
+for (const message of ['API rate limit exceeded', 'You have exceeded a secondary rate limit.']) {
+  for (const status of [200, 403, 429]) {
+    for (const retryAfter of [false, true]) {
+      test(`mixed GraphQL errors reject quota wording (${message}, ${status}, ${retryAfter})`,
+        async () => {
+          const body = JSON.stringify({errors: [
+            {type: 'RATE_LIMIT', message}, {type: 'FORBIDDEN', message: 'Resource not accessible'}
+          ]});
+          const {Hubkit, requests} = createHubkit(status, body, 'application/json', {
+            'x-ratelimit-reset': '1', ...(retryAfter ? {'retry-after': '0'} : {})
+          });
+          await assert.rejects(new Hubkit().graph('query { viewer { login } }'), error => {
+            assert.equal(error.status, status === 200 ? 403 : status);
+            assert.equal(Hubkit.identify403Error(error), undefined);
+            assert.equal(error.retryType, undefined);
+            assert.equal(error.retryDelay, undefined);
+            return true;
+          });
+          assert.equal(requests(), 1);
+        });
+    }
+  }
 }
 
 for (const [type, message, status] of [

@@ -171,12 +171,15 @@ if (typeof require !== 'undefined') {
       if (/access blocked/i.test(message)) {
         return {code: 'access-blocked', category: 'notfound', error: 'Repository access blocked'};
       }
-      if (/You have exceeded a secondary rate limit/.test(message)) {
+      // Structured errors must all be rate limits; one quota message cannot mask another failure.
+      const quota = error?.errors ? error.errors.length && error.errors.every(item =>
+        item.type === 'RATE_LIMIT' || item.type === 'RATE_LIMITED') :
+        /rate limit|request quota|abuse detection/i.test(message);
+      if (!quota) return;
+      if (/\bsecondary rate limit\b/i.test(message)) {
         return {code: 'secondary-rate-limit', quota: true};
       }
-      if (/rate limit|request quota|abuse detection/i.test(message)) {
-        return {code: 'rate-limit', quota: true};
-      }
+      return {code: 'rate-limit', quota: true};
     }
 
     scope(options) {
@@ -228,20 +231,27 @@ if (typeof require !== 'undefined') {
           if (cacheable && res) {
             if (options.stats) options.stats.record(shared);
           }
-          const rateLimited = [403, 429].includes(status);
-          if (rateLimited) {
+          const reason = Hubkit.identify403Error(error);
+          if ([403, 429].includes(status) && (!error.errors || reason?.quota)) {
             const retryAfter = res.headers.get('retry-after');
             const reset = res.headers.get('x-ratelimit-reset');
-            let delay;
-            if (retryAfter) {
-              if (/^\d+$/.test(retryAfter)) delay = Number(retryAfter) * 1000;
-            } else if (/^0+$/.test(res.headers.get('x-ratelimit-remaining')?.trim()) &&
-                /^\d+$/.test(reset)) {
-              delay = Math.max(0, Number(reset) * 1000 - Date.now());
-            }
+            const exhausted = /^0+$/.test(res.headers.get('x-ratelimit-remaining')?.trim());
             // Invalid and overflowing timer delays can otherwise trigger immediate retries.
-            if (Number.isSafeInteger(delay) && delay >= 0 && delay <= 2_147_483_647) {
-              error.retryDelay = delay;
+            const [retryAfterDelay, resetDelay] = [
+              /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : undefined,
+              exhausted && /^\d+$/.test(reset) ?
+                Math.max(0, Number(reset) * 1000 - Date.now()) : undefined
+            ].map(delay => Number.isSafeInteger(delay) && delay >= 0 && delay <= 2_147_483_647 ?
+              delay : undefined);
+            if (retryAfterDelay !== undefined) {
+              error.retryType = 'secondary';
+              error.retryDelay = retryAfterDelay;
+            } else if (reason?.code === 'secondary-rate-limit') {
+              error.retryType = 'secondary';
+              error.retryDelay = resetDelay ?? 60_000;
+            } else if (exhausted && reason?.quota || status === 429) {
+              error.retryType = 'primary';
+              error.retryDelay = resetDelay;
             }
           }
           let value;
@@ -254,7 +264,7 @@ if (typeof require !== 'undefined') {
           if (value === undefined && idempotent) {
             if (error.networkFailure || [500, 502, 503, 504].includes(status)) {
               value = Hubkit.RETRY;
-            } else if (rateLimited && error.retryDelay !== undefined &&
+            } else if (error.retryType && error.retryDelay !== undefined &&
                 (!options.timeout || error.retryDelay < options.timeout)) {
               value = Hubkit.RETRY;
             }

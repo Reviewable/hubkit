@@ -112,6 +112,8 @@ export interface Options {
     logTag?: string,
     fingerprint?: string[],
     networkFailure?: boolean,
+    /** Rate-limit classification, available before onError even without a usable delay. */
+    retryType?: 'primary' | 'secondary',
     /** Computed rate-limit retry delay in milliseconds. */
     retryDelay?: number,
   }):
