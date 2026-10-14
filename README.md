@@ -287,7 +287,8 @@ be rejected as usual (or the request retried in some special cases, like network
 
 Rate-limited `403` and `429` responses follow the same retry rules: a valid `Retry-After` takes precedence;
 otherwise, exhausted quota (`x-ratelimit-remaining: 0`) with `x-ratelimit-reset` determines the
-delay. Both headers must contain nonnegative integer seconds (`x-ratelimit-reset` since the Unix
+delay. A reset for a bucket with remaining quota does not delay retries.
+Both headers must contain nonnegative integer seconds (`x-ratelimit-reset` since the Unix
 epoch); HTTP-date `Retry-After` values are unsupported. Invalid values and delays exceeding the
 timer limit of 2,147,483,647 milliseconds are ignored, allowing fallback to a usable quota reset.
 Secondary-limit messages and HTTP 429 responses without exhausted primary quota fall back to a
