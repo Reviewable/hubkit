@@ -190,8 +190,9 @@ if (reason?.category) {
 ```
 
 The detailed `code` distinguishes causes for diagnostics or error grouping without including
-request URLs or organization names. The `rate-limit` code covers other rate-limit, request-quota,
-and abuse-detection messages.
+request URLs or organization names. The `secondary-rate-limit` code covers messages containing
+`secondary rate limit`, `endpoint is temporarily being throttled`, or `abuse detection`
+(case-insensitive). The `rate-limit` code covers other rate-limit and request-quota messages.
 
 #### HTTP error bodies (breaking change in 9.0.0)
 
