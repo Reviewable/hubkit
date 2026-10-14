@@ -116,7 +116,8 @@ for (const types of [
 
 for (const message of [
   'API rate limit exceeded', 'You have exceeded a secondary rate limit.',
-  'This endpoint is temporarily being throttled. Please try again later.'
+  'This endpoint is temporarily being throttled. Please try again later.',
+  'You have triggered an abuse detection mechanism.'
 ]) {
   for (const status of [200, 403, 429]) {
     for (const retryAfter of [false, true]) {

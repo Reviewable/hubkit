@@ -54,6 +54,10 @@ const cases = [
     code: 'secondary-rate-limit', quota: true
   },
   {
+    message: 'You have triggered an abuse detection mechanism.',
+    code: 'secondary-rate-limit', quota: true
+  },
+  {
     message: 'API rate limit exceeded for user ID 1234.',
     code: 'rate-limit', quota: true
   }
@@ -77,12 +81,15 @@ for (const [environment, implementation] of [['Node', Hubkit], ['browser', brows
   }
 
   test(`${environment}: recognizes legacy quota wording and case variants`, () => {
-    assert.deepEqual({...implementation.identify403Error(
-      'THIS ENDPOINT IS TEMPORARILY BEING THROTTLED')},
-    {code: 'secondary-rate-limit', quota: true});
     for (const message of [
-      'API RATE LIMIT EXCEEDED', 'Your request quota is exhausted.',
-      'You have triggered an abuse detection mechanism.'
+      'THIS ENDPOINT IS TEMPORARILY BEING THROTTLED',
+      'You have triggered an ABUSE DETECTION mechanism.'
+    ]) {
+      assert.deepEqual({...implementation.identify403Error(message)},
+        {code: 'secondary-rate-limit', quota: true});
+    }
+    for (const message of [
+      'API RATE LIMIT EXCEEDED', 'Your request quota is exhausted.'
     ]) {
       assert.deepEqual(
         {...implementation.identify403Error(message)}, {code: 'rate-limit', quota: true});

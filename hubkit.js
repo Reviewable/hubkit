@@ -171,12 +171,13 @@ if (typeof require !== 'undefined') {
       if (/access blocked/i.test(message)) {
         return {code: 'access-blocked', category: 'notfound', error: 'Repository access blocked'};
       }
-      const secondary = /\bsecondary rate limit\b|\bendpoint is temporarily being throttled\b/i
-        .test(message);
+      const secondary =
+        /\bsecondary rate limit\b|\bendpoint is temporarily being throttled\b|\babuse detection\b/i
+          .test(message);
       // Structured errors must all be rate limits; one quota message cannot mask another failure.
       const quota = error?.errors ? error.errors.length && error.errors.every(item =>
         item.type === 'RATE_LIMIT' || item.type === 'RATE_LIMITED') :
-        secondary || /rate limit|request quota|abuse detection/i.test(message);
+        secondary || /rate limit|request quota/i.test(message);
       if (!quota) return;
       if (secondary) {
         return {code: 'secondary-rate-limit', quota: true};

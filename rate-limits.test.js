@@ -10,6 +10,7 @@ const NOW = 1_800_000_000_000;
 
 const SECONDARY_MESSAGE = 'You have exceeded a secondary rate limit.';
 const THROTTLED_MESSAGE = 'This endpoint is temporarily being throttled. Please try again later.';
+const ABUSE_MESSAGE = 'You have triggered an abuse detection mechanism.';
 
 function quotaHeaders(resource = 'core', remaining = 4500) {
   return {
@@ -81,6 +82,11 @@ for (const status of [403, 429]) {
     [THROTTLED_MESSAGE, quotaHeaders(), 'secondary', 60_000],
     [THROTTLED_MESSAGE, quotaHeaders('core', 0), 'secondary', 3_600_000],
     [THROTTLED_MESSAGE, {'retry-after': '2'}, 'secondary', 2000],
+    [ABUSE_MESSAGE, {}, 'secondary', 60_000],
+    [ABUSE_MESSAGE, quotaHeaders(), 'secondary', 60_000],
+    [ABUSE_MESSAGE, quotaHeaders('core', 0), 'secondary', 3_600_000],
+    [ABUSE_MESSAGE, {'x-ratelimit-remaining': '0'}, 'secondary', 60_000],
+    [ABUSE_MESSAGE, {...quotaHeaders('core', 0), 'retry-after': '2'}, 'secondary', 2000],
     ['Resource not accessible by integration', {}, fallbackType, fallbackDelay]
   ]) {
     test(`HTTP ${status} classifies ${message} with ${JSON.stringify(headers)}`, async () => {
@@ -102,8 +108,7 @@ for (const status of [403, 429]) {
   }
 
   for (const message of [
-    'Your request quota is exhausted.', 'Your REQUEST QUOTA is exhausted.',
-    'You have triggered an abuse detection mechanism.'
+    'Your request quota is exhausted.', 'Your REQUEST QUOTA is exhausted.'
   ]) {
     test(`HTTP ${status} retries recognized legacy quota message: ${message}`, async t => {
       t.mock.timers.enable({apis: ['setTimeout']});
@@ -127,7 +132,7 @@ for (const status of [403, 429]) {
     });
   }
 
-  for (const message of [SECONDARY_MESSAGE, THROTTLED_MESSAGE,
+  for (const message of [SECONDARY_MESSAGE, THROTTLED_MESSAGE, ABUSE_MESSAGE,
     ...status === 429 ? ['Too Many Requests'] : []]) {
     test(`HTTP ${status} waits a minute before retrying ${message}`, async t => {
       t.mock.timers.enable({apis: ['setTimeout']});
