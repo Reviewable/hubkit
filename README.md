@@ -190,8 +190,9 @@ if (reason?.category) {
 ```
 
 The detailed `code` distinguishes causes for diagnostics or error grouping without including
-request URLs or organization names. The `rate-limit` code covers other rate-limit, request-quota,
-and abuse-detection messages.
+request URLs or organization names. The `secondary-rate-limit` code covers messages containing
+`secondary rate limit`, `endpoint is temporarily being throttled`, or `abuse detection`
+(case-insensitive). The `rate-limit` code covers other rate-limit and request-quota messages.
 
 #### HTTP error bodies (breaking change in 9.0.0)
 
@@ -286,10 +287,12 @@ be rejected as usual (or the request retried in some special cases, like network
 
 Rate-limited `403` and `429` responses follow the same retry rules: a valid `Retry-After` takes precedence;
 otherwise, exhausted quota (`x-ratelimit-remaining: 0`) with `x-ratelimit-reset` determines the
-delay. Both headers must contain nonnegative integer seconds (`x-ratelimit-reset` since the Unix
+delay. A reset for a bucket with remaining quota does not delay retries.
+Both headers must contain nonnegative integer seconds (`x-ratelimit-reset` since the Unix
 epoch); HTTP-date `Retry-After` values are unsupported. Invalid values and delays exceeding the
 timer limit of 2,147,483,647 milliseconds are ignored, allowing fallback to a usable quota reset.
-Explicit secondary-limit messages fall back to a 60-second delay when no usable delay is available;
+Secondary-limit messages and HTTP 429 responses without exhausted primary quota fall back to a
+60-second delay when no usable delay is available;
 other errors have no `error.retryDelay`
 in that case.
 Automatic retries respect `maxTries` and require the delay to fit within `timeout` when
@@ -298,10 +301,13 @@ including when the handler suppresses retries, and remains available if the requ
 
 `error.retryType` classifies these errors before `onError` runs and remains on rejected errors:
 
-* `'secondary'`: the message contains `secondary rate limit` (case-insensitive), or a valid
-  `Retry-After` supplies the delay. This takes precedence even if primary quota is also exhausted.
-* `'primary'`: otherwise, both exhausted quota and a quota message recognized by
-  `identify403Error` (including legacy `request quota` and `abuse detection` wording), or HTTP 429.
+* `'secondary'`: the message contains `secondary rate limit`,
+  `endpoint is temporarily being throttled`, or legacy `abuse detection` wording
+  (case-insensitive), or a valid `Retry-After` supplies
+  the delay. This takes precedence even if primary quota is also exhausted. HTTP 429 without
+  exhausted primary quota also uses this classification and the 60-second fallback.
+* `'primary'`: otherwise, exhausted quota plus either a quota message recognized by
+  `identify403Error` (including legacy `request quota` wording) or HTTP 429.
   GraphQL errors consisting entirely of `RATE_LIMIT`/`RATE_LIMITED` types also identify quota
   errors independently of their messages; exhausted quota is still required. These types alone
   do not imply a secondary limit. Structured errors containing any other type do not trigger
