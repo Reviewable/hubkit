@@ -171,12 +171,14 @@ if (typeof require !== 'undefined') {
       if (/access blocked/i.test(message)) {
         return {code: 'access-blocked', category: 'notfound', error: 'Repository access blocked'};
       }
+      const secondary = /\bsecondary rate limit\b|\bendpoint is temporarily being throttled\b/i
+        .test(message);
       // Structured errors must all be rate limits; one quota message cannot mask another failure.
       const quota = error?.errors ? error.errors.length && error.errors.every(item =>
         item.type === 'RATE_LIMIT' || item.type === 'RATE_LIMITED') :
-        /rate limit|request quota|abuse detection/i.test(message);
+        secondary || /rate limit|request quota|abuse detection/i.test(message);
       if (!quota) return;
-      if (/\bsecondary rate limit\b/i.test(message)) {
+      if (secondary) {
         return {code: 'secondary-rate-limit', quota: true};
       }
       return {code: 'rate-limit', quota: true};
@@ -246,10 +248,10 @@ if (typeof require !== 'undefined') {
             if (retryAfterDelay !== undefined) {
               error.retryType = 'secondary';
               error.retryDelay = retryAfterDelay;
-            } else if (reason?.code === 'secondary-rate-limit') {
+            } else if (reason?.code === 'secondary-rate-limit' || status === 429 && !exhausted) {
               error.retryType = 'secondary';
               error.retryDelay = resetDelay ?? 60_000;
-            } else if (exhausted && reason?.quota || status === 429) {
+            } else if (exhausted && (reason?.quota || status === 429)) {
               error.retryType = 'primary';
               error.retryDelay = resetDelay;
             }

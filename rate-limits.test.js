@@ -9,6 +9,7 @@ const vm = require('node:vm');
 const NOW = 1_800_000_000_000;
 
 const SECONDARY_MESSAGE = 'You have exceeded a secondary rate limit.';
+const THROTTLED_MESSAGE = 'This endpoint is temporarily being throttled. Please try again later.';
 
 function quotaHeaders(resource = 'core', remaining = 4500) {
   return {
@@ -53,18 +54,20 @@ function createHubkit(responses) {
 }
 
 for (const status of [403, 429]) {
+  const fallbackType = status === 429 ? 'secondary' : undefined;
+  const fallbackDelay = status === 429 ? 60_000 : undefined;
   for (const [message, headers, retryType, retryDelay] of [
-    ['API rate limit exceeded', {}, status === 429 ? 'primary' : undefined, undefined],
-    ['rate limit of 5000 exceeded', {}, status === 429 ? 'primary' : undefined, undefined],
-    ['API rate limit exceeded', quotaHeaders(),
-      status === 429 ? 'primary' : undefined, undefined],
-    ['Too Many Requests', {}, status === 429 ? 'primary' : undefined, undefined],
+    ['API rate limit exceeded', {}, fallbackType, fallbackDelay],
+    ['rate limit of 5000 exceeded', {}, fallbackType, fallbackDelay],
+    ['API rate limit exceeded', quotaHeaders(), fallbackType, fallbackDelay],
+    ['Too Many Requests', {}, fallbackType, fallbackDelay],
+    ['Too Many Requests', quotaHeaders('core', 0),
+      status === 429 ? 'primary' : undefined, status === 429 ? 3_600_000 : undefined],
     ['API rate limit exceeded', quotaHeaders('core', 0), 'primary', 3_600_000],
     ['rate limit of 5000 exceeded', quotaHeaders('core', 0), 'primary', 3_600_000],
     ['API RATE LIMIT EXCEEDED', {'x-ratelimit-remaining': '0'}, 'primary', undefined],
-    ['Your request quota is exhausted.', {}, status === 429 ? 'primary' : undefined, undefined],
-    ['Your request quota is exhausted.', quotaHeaders(),
-      status === 429 ? 'primary' : undefined, undefined],
+    ['Your request quota is exhausted.', {}, fallbackType, fallbackDelay],
+    ['Your request quota is exhausted.', quotaHeaders(), fallbackType, fallbackDelay],
     ['Your request quota is exhausted.', {'x-ratelimit-remaining': '0'}, 'primary', undefined],
     ['API rate limit exceeded', {'retry-after': '2'}, 'secondary', 2000],
     ['API rate limit exceeded', {...quotaHeaders('core', 0), 'retry-after': '2'},
@@ -74,8 +77,11 @@ for (const status of [403, 429]) {
     [SECONDARY_MESSAGE, {'retry-after': 'invalid'}, 'secondary', 60_000],
     [SECONDARY_MESSAGE, {'retry-after': '2'}, 'secondary', 2000],
     [SECONDARY_MESSAGE, quotaHeaders('core', 0), 'secondary', 3_600_000],
-    ['Resource not accessible by integration', {},
-      status === 429 ? 'primary' : undefined, undefined]
+    [THROTTLED_MESSAGE, {}, 'secondary', 60_000],
+    [THROTTLED_MESSAGE, quotaHeaders(), 'secondary', 60_000],
+    [THROTTLED_MESSAGE, quotaHeaders('core', 0), 'secondary', 3_600_000],
+    [THROTTLED_MESSAGE, {'retry-after': '2'}, 'secondary', 2000],
+    ['Resource not accessible by integration', {}, fallbackType, fallbackDelay]
   ]) {
     test(`HTTP ${status} classifies ${message} with ${JSON.stringify(headers)}`, async () => {
       const {Hubkit, state} = createHubkit([{status, headers, body: {message}}]);
@@ -121,36 +127,39 @@ for (const status of [403, 429]) {
     });
   }
 
-  test(`HTTP ${status} waits a minute before retrying a headerless secondary limit`, async t => {
-    t.mock.timers.enable({apis: ['setTimeout']});
-    const {Hubkit, state} = createHubkit([
-      {status, body: {message: SECONDARY_MESSAGE}}, {body: {ok: true}}
-    ]);
-    const failed = Promise.withResolvers();
-    const request = new Hubkit().request('/repos/o/r', {
-      onError: error => {failed.resolve(error);}
-    });
-    const error = await failed.promise;
-    assert.equal(error.retryType, 'secondary');
-    assert.equal(error.retryDelay, 60_000);
-    t.mock.timers.tick(59_999);
-    assert.equal(state.requests.length, 1);
-    t.mock.timers.tick(1);
-    assert.equal((await request).ok, true);
-    assert.equal(state.requests.length, 2);
-  });
-
-  for (const options of [{timeout: 60_000}, {maxTries: 1}, {method: 'POST'}]) {
-    test(`HTTP ${status} fallback respects retry restrictions ${JSON.stringify(options)}`,
-      async () => {
-        const {Hubkit, state} = createHubkit([{status, body: {message: SECONDARY_MESSAGE}}]);
-        await assert.rejects(new Hubkit(options).request('/repos/o/r'), error => {
-          assert.equal(error.retryType, 'secondary');
-          assert.equal(error.retryDelay, 60_000);
-          return true;
-        });
-        assert.equal(state.requests.length, 1);
+  for (const message of [SECONDARY_MESSAGE, THROTTLED_MESSAGE,
+    ...status === 429 ? ['Too Many Requests'] : []]) {
+    test(`HTTP ${status} waits a minute before retrying ${message}`, async t => {
+      t.mock.timers.enable({apis: ['setTimeout']});
+      const {Hubkit, state} = createHubkit([
+        {status, body: {message}}, {body: {ok: true}}
+      ]);
+      const failed = Promise.withResolvers();
+      const request = new Hubkit().request('/repos/o/r', {
+        onError: error => {failed.resolve(error);}
       });
+      const error = await failed.promise;
+      assert.equal(error.retryType, 'secondary');
+      assert.equal(error.retryDelay, 60_000);
+      t.mock.timers.tick(59_999);
+      assert.equal(state.requests.length, 1);
+      t.mock.timers.tick(1);
+      assert.equal((await request).ok, true);
+      assert.equal(state.requests.length, 2);
+    });
+
+    for (const options of [{timeout: 60_000}, {maxTries: 1}, {method: 'POST'}]) {
+      test(`HTTP ${status} ${message} respects retry restrictions ${JSON.stringify(options)}`,
+        async () => {
+          const {Hubkit, state} = createHubkit([{status, body: {message}}]);
+          await assert.rejects(new Hubkit(options).request('/repos/o/r'), error => {
+            assert.equal(error.retryType, 'secondary');
+            assert.equal(error.retryDelay, 60_000);
+            return true;
+          });
+          assert.equal(state.requests.length, 1);
+        });
+    }
   }
 }
 
@@ -590,8 +599,8 @@ for (const status of [403, 429]) {
       }, body: {message: 'API rate limit exceeded'}}]);
       await assert.rejects(new Hubkit({maxTries: 1}).request('/repos/o/r'), error => {
         assert.equal(error.status, status);
-        assert.equal(error.retryDelay, ['00', ' \t000 '].includes(remaining) ? 4000 : undefined,
-          remaining);
+        assert.equal(error.retryDelay, ['00', ' \t000 '].includes(remaining) ?
+          4000 : status === 429 ? 60_000 : undefined, remaining);
         return true;
       });
       assert.equal(state.requests.length, 1);
@@ -599,7 +608,7 @@ for (const status of [403, 429]) {
   });
 
   for (const source of ['retry-after', 'quota-reset']) {
-    test(`HTTP ${status} rejects invalid ${source} delay headers without retrying`, async t => {
+    test(`HTTP ${status} ignores invalid ${source} delay headers`, async t => {
       t.mock.timers.enable({apis: ['setTimeout']});
       const header = source === 'retry-after' ? 'retry-after' : 'x-ratelimit-reset';
       const tooLong = source === 'retry-after' ? 2_147_484 : NOW / 1000 + 2_147_484;
@@ -613,14 +622,15 @@ for (const status of [403, 429]) {
           }, body: {message: 'API rate limit exceeded'}}, {}
         ]);
         const failed = Promise.withResolvers();
-        const request = new Hubkit().request('/repos/o/r', {
+        const request = new Hubkit({timeout: 60_000}).request('/repos/o/r', {
           onError: error => {failed.resolve(error);}
         });
         const rejected = assert.rejects(request, error => error.status === status, value);
         const error = await failed.promise;
         t.mock.timers.runAll();
         await rejected;
-        assert.equal(error.retryDelay, undefined, value);
+        assert.equal(error.retryDelay, status === 429 && source === 'retry-after' ?
+          60_000 : undefined, value);
         assert.equal(state.requests.length, 1, value);
       }
     });
@@ -734,12 +744,12 @@ for (const status of [403, 429]) {
     });
   }
 
-  test(`HTTP ${status} respects onError overrides and does not retry without delay headers`,
+  test(`HTTP ${status} respects onError overrides and retry timeouts`,
     async () => {
       for (const override of ['reject', 'resolve', 'none']) {
         const headers = override === 'none' ? {} : {'retry-after': '2'};
         const {Hubkit, state} = createHubkit([{status, headers}]);
-        const options = override === 'none' ? {} : {
+        const options = override === 'none' ? {timeout: 60_000} : {
           onError: () => override === 'reject' ? Hubkit.DONT_RETRY : 'fallback'
         };
         const request = new Hubkit().request('/repos/o/r', options);
