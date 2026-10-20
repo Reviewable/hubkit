@@ -227,6 +227,96 @@ if (typeof require !== 'undefined') {
         let result, tries = 0, shared = false;
         send(options.body, options._cause || 'initial');
 
+        // Folds a page of GraphQL data into `result`, returning true if it requested the next page.
+        const acceptGraphPage = data => {
+          let root = data;
+          const rootKeys = [];
+          while (true) {
+            if (!root || Array.isArray(root) || typeof root === 'string' ||
+                typeof root === 'number') {
+              root = undefined;
+              break;
+            }
+            const keys = Object.keys(root).filter(key => key !== 'rateLimit');
+            if (keys.length !== 1) break;
+            rootKeys.push(keys[0]);
+            root = root[keys[0]];
+            if (hasConnectionItems(root)) break;
+          }
+          const paginated = hasConnectionItems(root) &&
+            /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
+          if (paginated && !(
+            root.pageInfo && 'endCursor' in root.pageInfo && 'hasNextPage' in root.pageInfo
+          )) {
+            throw new Error(
+              `Internal error: paginated query missing pageInfo at ${rootKeys.join('.')}`);
+          }
+          let resultRoot;
+          if (paginated) {
+            resultRoot = result;
+            for (const key of rootKeys) {
+              if (resultRoot === undefined) break;
+              resultRoot = resultRoot[key];
+            }
+          }
+          // Each array the incoming page carries must already be an array on the
+          // accumulator, otherwise the pages have different shapes and concatenating them
+          // would silently split the items across `nodes` and `edges`.
+          if (result && !(paginated && hasConnectionItems(resultRoot) &&
+              (!Array.isArray(root.nodes) || Array.isArray(resultRoot.nodes)) &&
+              (!Array.isArray(root.edges) || Array.isArray(resultRoot.edges)))) {
+            throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
+          }
+          if (paginated) {
+            const cursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
+            if (result) {
+              if (Array.isArray(root.nodes)) {
+                resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
+              }
+              if (Array.isArray(root.edges)) {
+                resultRoot.edges = resultRoot.edges.concat(root.edges);
+              }
+              for (const key in root) {
+                // Skip the arrays concatenated above, but copy over a field that merely
+                // shares their name (e.g. the alias `nodes: totalCount`) like any other.
+                if (!Object.hasOwnProperty.call(root, key) || key === 'pageInfo' ||
+                    ((key === 'nodes' || key === 'edges') && Array.isArray(root[key]))) {
+                  continue;
+                }
+                resultRoot[key] = root[key];
+              }
+            } else {
+              result = data;
+              delete root.pageInfo;
+            }
+            if (cursor) {
+              if (options.allPages) {
+                cachedItem = null;
+                tries = 0;
+                options._cause = 'page';
+                options.body.variables = options.body.variables || {};
+                options.body.variables.after = cursor;
+                send(options.body, 'page');
+                return true;  // Don't resolve yet, more pages to come
+              }
+              const makeNext = (self, opts) => () => self.request(
+                path,
+                defaults({
+                  _cause: 'page', body: defaults({
+                    variables: defaults({
+                      after: cursor
+                    }, opts.body.variables)
+                  }, opts.body)
+                }, opts)
+              );
+              result.next = makeNext(this, options);
+              result[NEXT_FACTORY] = makeNext;
+            }
+          } else {
+            result = data;
+          }
+        };
+
         function handleError(error, res, status = res?.status) {
           const headers = res && Object.fromEntries(
             [...res.headers].filter(([k]) => k !== 'authorization'));
@@ -277,6 +367,15 @@ if (typeof require !== 'undefined') {
           } else if (value === undefined ||
               value === Hubkit.RETRY || value === Hubkit.DONT_RETRY) {
             reject(error);
+          } else if (graph && value === error.data) {
+            // Partial GraphQL data accepted by `onError` is still a page of a paginated query.
+            try {
+              if (acceptGraphPage(value)) return;
+            } catch (e) {
+              handleError(e, res);
+              return;
+            }
+            resolve(result);
           } else {
             resolve(value);
           }
@@ -389,92 +488,7 @@ if (typeof require !== 'undefined') {
                 }
               }
               if (detectApi(path) === 'graph') {
-                let root = res.data.data;
-                const rootKeys = [];
-                while (true) {
-                  if (!root || Array.isArray(root) || typeof root === 'string' ||
-                      typeof root === 'number') {
-                    root = undefined;
-                    break;
-                  }
-                  const keys = Object.keys(root).filter(key => key !== 'rateLimit');
-                  if (keys.length !== 1) break;
-                  rootKeys.push(keys[0]);
-                  root = root[keys[0]];
-                  if (hasConnectionItems(root)) break;
-                }
-                const paginated = hasConnectionItems(root) &&
-                  /^\s*query[^({]*\((|[^)]*[(,\s])\$after\s*:\s*String[),\s]/.test(options.body.query);
-                if (paginated && !(
-                  root.pageInfo && 'endCursor' in root.pageInfo && 'hasNextPage' in root.pageInfo
-                )) {
-                  throw new Error(
-                    `Internal error: paginated query missing pageInfo at ${rootKeys.join('.')}`);
-                }
-                let resultRoot;
-                if (paginated) {
-                  resultRoot = result;
-                  for (const key of rootKeys) {
-                    if (resultRoot === undefined) break;
-                    resultRoot = resultRoot[key];
-                  }
-                }
-                // Each array the incoming page carries must already be an array on the
-                // accumulator, otherwise the pages have different shapes and concatenating them
-                // would silently split the items across `nodes` and `edges`.
-                if (result && !(paginated && hasConnectionItems(resultRoot) &&
-                    (!Array.isArray(root.nodes) || Array.isArray(resultRoot.nodes)) &&
-                    (!Array.isArray(root.edges) || Array.isArray(resultRoot.edges)))) {
-                  throw new Error(formatError('Hubkit', 'unable to concatenate paged results'));
-                }
-                if (paginated) {
-                  const cursor = root.pageInfo.hasNextPage ? root.pageInfo.endCursor : undefined;
-                  if (result) {
-                    if (Array.isArray(root.nodes)) {
-                      resultRoot.nodes = resultRoot.nodes.concat(root.nodes);
-                    }
-                    if (Array.isArray(root.edges)) {
-                      resultRoot.edges = resultRoot.edges.concat(root.edges);
-                    }
-                    for (const key in root) {
-                      // Skip the arrays concatenated above, but copy over a field that merely
-                      // shares their name (e.g. the alias `nodes: totalCount`) like any other.
-                      if (!Object.hasOwnProperty.call(root, key) || key === 'pageInfo' ||
-                          ((key === 'nodes' || key === 'edges') && Array.isArray(root[key]))) {
-                        continue;
-                      }
-                      resultRoot[key] = root[key];
-                    }
-                  } else {
-                    result = res.data.data;
-                    delete root.pageInfo;
-                  }
-                  if (cursor) {
-                    if (options.allPages) {
-                      cachedItem = null;
-                      tries = 0;
-                      options._cause = 'page';
-                      options.body.variables = options.body.variables || {};
-                      options.body.variables.after = cursor;
-                      send(options.body, 'page');
-                      return;  // Don't resolve yet, more pages to come
-                    }
-                    const makeNext = (self, opts) => () => self.request(
-                      path,
-                      defaults({
-                        _cause: 'page', body: defaults({
-                          variables: defaults({
-                            after: cursor
-                          }, opts.body.variables)
-                        }, opts.body)
-                      }, opts)
-                    );
-                    result.next = makeNext(this, options);
-                    result[NEXT_FACTORY] = makeNext;
-                  }
-                } else {
-                  result = res.data.data;
-                }
+                if (acceptGraphPage(res.data.data)) return;
               } else if (res.data && (
                 Array.isArray(res.data) || Array.isArray(res.data.items) ||
                 Array.isArray(res.data.statuses) || Array.isArray(res.data.files)
