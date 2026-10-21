@@ -317,7 +317,7 @@ if (typeof require !== 'undefined') {
           }
         };
 
-        function handleError(error, res, status = res?.status) {
+        function handleError(error, res, status = res?.status, partialData = false) {
           const headers = res && Object.fromEntries(
             [...res.headers].filter(([k]) => k !== 'authorization'));
           error.request = {method: options.method, url: path, headers};
@@ -367,8 +367,9 @@ if (typeof require !== 'undefined') {
           } else if (value === undefined ||
               value === Hubkit.RETRY || value === Hubkit.DONT_RETRY) {
             reject(error);
-          } else if (graph && value === error.data) {
-            // Partial GraphQL data accepted by `onError` is still a page of a paginated query.
+          } else if (graph && partialData) {
+            // A value recovering from a response with GraphQL data is still a page of a paginated
+            // query.  Errors raised while accepting it, or anywhere else, resolve as usual.
             try {
               if (acceptGraphPage(value)) return;
             } catch (e) {
@@ -469,7 +470,7 @@ if (typeof require !== 'undefined') {
                 if (options.logTag) statusError.logTag = options.logTag;
                 statusError.fingerprint =
                   ['Hubkit', options.method, options.logTag || options.pathPattern, `${status}`];
-                handleError(statusError, res, status);
+                handleError(statusError, res, status, 'data' in statusError);
               }
             } else if (options.media === 'raw' && !(
               /^(?:text\/plain|application\/octet-stream) *;?/.test(res.headers.get('content-type'))
