@@ -210,6 +210,20 @@ error handlers that expect a Blob or ArrayBuffer in `error.response.data` or
 `error.response.rawData`; those fields now contain parsed JSON or text as described above.
 This also applies to handlers that recover from an HTTP error by returning a value from `onError`.
 
+#### GraphQL partial data
+
+When a GraphQL response carries partial data alongside errors, the error passed to `onError` has
+that data in `error.data`. Any value `onError` returns for such an error, other than `undefined`,
+`Hubkit.RETRY` and `Hubkit.DONT_RETRY`, is treated as that response's data. For a paginated query,
+it is handled as a page: its `nodes` or `edges` are concatenated with the pages fetched so far and
+pagination continues as for a successful response. This applies to `error.data` itself as well as
+to a copy or any other value of the same shape.
+
+If the returned value can't be concatenated with the pages fetched so far, `onError` is called
+again with the resulting `unable to concatenate paged results` error. That error has no
+`error.data`, so a value returned for it resolves the whole request as before. Errors without
+partial data, such as network failures, also resolve the whole request with the returned value.
+
 #### Automatic retries
 
 Automatic retries for network failures, server errors, and rate limits are restricted to idempotent
@@ -283,7 +297,7 @@ unexpected 4xx or 5xx response.  If it's an error response, the error object wil
 `method`, `path`, and `response` attributes.  GraphQL errors returned with HTTP 200 have a
 synthesized `error.status`, which also controls automatic retries; `error.response.status` retains
 the original HTTP status.  If the function returns `undefined`, the promise will
-be rejected as usual (or the request retried in some special cases, like network failures and rate-limited 403s or 429s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.  For GraphQL errors that come with partial data, returning `error.data` itself accepts that data as the response: for a paginated query its nodes or edges are concatenated with the other pages and pagination continues as for a successful response.
+be rejected as usual (or the request retried in some special cases, like network failures and rate-limited 403s or 429s), if it returns `Hubkit.RETRY` the request will be retried, if it returns `Hubkit.DONT_RETRY` the promise will always be rejected, and if returns any other value the promise will be resolved with the returned value.  If multiple onError handlers are assigned (e.g., in default options and in per-request options), they will all be executed, and the first non-undefined value from the most specific handler will be used.  For GraphQL errors that come with partial data (`error.data`), the returned value is treated as that response's data; see [GraphQL partial data](#graphql-partial-data).
 
 Rate-limited `403` and `429` responses follow the same retry rules: a valid `Retry-After` takes precedence;
 otherwise, exhausted quota (`x-ratelimit-remaining: 0`) with `x-ratelimit-reset` determines the

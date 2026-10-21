@@ -367,8 +367,9 @@ if (typeof require !== 'undefined') {
           } else if (value === undefined ||
               value === Hubkit.RETRY || value === Hubkit.DONT_RETRY) {
             reject(error);
-          } else if (graph && value === error.data) {
-            // Partial GraphQL data accepted by `onError` is still a page of a paginated query.
+          } else if (graph && 'data' in error) {
+            // A value recovering from a response with GraphQL data is still a page of a paginated
+            // query.  Errors raised while accepting it carry no data, so they resolve as usual.
             try {
               if (acceptGraphPage(value)) return;
             } catch (e) {

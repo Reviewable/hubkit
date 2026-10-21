@@ -46,32 +46,47 @@ for (const [name, pages, numbers] of [
     buildPage([{number: 2}])
   ], [null, 2]]
 ]) {
-  test(`partial GraphQL data accepted on ${name} keeps paginating`, async () => {
-    const {Hubkit, cursors} = createHubkit(pages);
-    let errors = 0;
-    const result = await new Hubkit().graph(query, {
-      onError: error => {
-        errors++;
-        return error.data;
-      }
+  for (const [recovery, recover] of [
+    ['the data itself', error => error.data],
+    ['a copy of the data', error => JSON.parse(JSON.stringify(error.data))]
+  ]) {
+    test(`${recovery} recovered on ${name} keeps paginating`, async () => {
+      const {Hubkit, cursors} = createHubkit(pages);
+      let errors = 0;
+      const result = await new Hubkit().graph(query, {
+        onError: error => {
+          errors++;
+          return recover(error);
+        }
+      });
+      assert.equal(errors, 1);
+      assert.deepEqual(cursors, [undefined, 'c1', 'c2'].slice(0, pages.length));
+      assert.deepEqual([...result.viewer.issues.nodes].map(node => node && node.number), numbers);
+      assert.equal(result.viewer.issues.pageInfo, undefined);
+      assert.equal(result.next, undefined);
     });
-    assert.equal(errors, 1);
-    assert.deepEqual(cursors, [undefined, 'c1', 'c2'].slice(0, pages.length));
-    assert.deepEqual([...result.viewer.issues.nodes].map(node => node && node.number), numbers);
-    assert.equal(result.viewer.issues.pageInfo, undefined);
-    assert.equal(result.next, undefined);
-  });
+  }
 }
 
-test('other values returned by onError resolve the paginated query immediately', async () => {
+test('a value that is not a page resolves the paginated query after one more onError', async () => {
   const {Hubkit, cursors} = createHubkit([
     buildPage([{number: 1}], 'c1'),
     buildPage([null], 'c2', forbidden),
     buildPage([{number: 3}])
   ]);
-  const result = await new Hubkit().graph(query, {onError: () => 'recovered'});
+  const errors = [];
+  const result = await new Hubkit().graph(query, {
+    onError: error => {
+      errors.push(error);
+      return 'recovered';
+    }
+  });
   assert.equal(result, 'recovered');
   assert.deepEqual(cursors, [undefined, 'c1']);
+  assert.equal(errors.length, 2);
+  assert.ok('data' in errors[0]);
+  assert.ok(!('data' in errors[1]));
+  assert.match(errors[1].message, /unable to concatenate paged results/);
 });
 
 test('partial GraphQL data with an incompatible shape is reported to onError', async () => {
