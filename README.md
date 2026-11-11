@@ -293,7 +293,12 @@ of items.  This also works for GraphQL queries, as long as your query has a `$af
 * `ifNotFound`: A value to return instead of throwing an exception when the request results in a 404.
 * `ifGone`: A value to return instead of throwing an exception when the request results in a 410.
 * `onError`: A function to be called when an error occurs, either in the request itself or an
-unexpected 4xx or 5xx response.  If it's an error response, the error object will have `status`,
+unexpected 4xx or 5xx response. The error has a non-enumerable `options` property containing a shallow
+snapshot of this caller's effective request options, after `onRequest` and including the token.
+It remains available if the error rejects the request, and changing options for a later retry does
+not change the snapshot. Ordinary JSON serialization and object spreads omit this property;
+explicit access or serializers that inspect non-enumerable properties can still expose its token.
+If it's an error response, the error object will have `status`,
 `method`, `path`, and `response` attributes.  GraphQL errors returned with HTTP 200 have a
 synthesized `error.status`, which also controls automatic retries; `error.response.status` retains
 the original HTTP status.  If the function returns `undefined`, the promise will

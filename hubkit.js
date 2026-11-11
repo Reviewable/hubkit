@@ -318,6 +318,9 @@ if (typeof require !== 'undefined') {
         };
 
         function handleError(error, res, status = res?.status, partialData = false) {
+          // Keep request context out of ordinary error serialization. Snapshot the options so a
+          // later retry cannot change the token associated with this failure.
+          Object.defineProperty(error, 'options', {value: {...options}, configurable: true});
           const headers = res && Object.fromEntries(
             [...res.headers].filter(([k]) => k !== 'authorization'));
           error.request = {method: options.method, url: path, headers};
