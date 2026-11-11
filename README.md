@@ -294,9 +294,14 @@ of items.  This also works for GraphQL queries, as long as your query has a `$af
 * `ifGone`: A value to return instead of throwing an exception when the request results in a 410.
 * `onError`: A function to be called when an error occurs, either in the request itself or an
 unexpected 4xx or 5xx response. The error has a non-enumerable `options` property containing a shallow
-snapshot of this caller's effective request options, after `onRequest` and including the token.
-It remains available if the error rejects the request, and changing options for a later retry does
-not change the snapshot. Ordinary JSON serialization and object spreads omit this property;
+snapshot of this caller's effective request options, captured after `onSend` and before sending or
+joining that attempt, including the token. It remains available if the error rejects the request;
+later option changes, including in `onReceive` or for a retry, do not change the snapshot.
+Errors from preparation (including GraphQL preprocessing), callbacks, and cache cleanup also carry
+`options` when they reject `request()` or `graph()`. Before an attempt is ready to send, the snapshot
+reflects the options at the point of failure. This does not change which errors invoke `onError`
+or are retried. Errors that cannot be decorated in place are copied; non-object rejection reasons
+are preserved unchanged. Ordinary JSON serialization and object spreads omit this property;
 explicit access or serializers that inspect non-enumerable properties can still expose its token.
 If it's an error response, the error object will have `status`,
 `method`, `path`, and `response` attributes.  GraphQL errors returned with HTTP 200 have a
