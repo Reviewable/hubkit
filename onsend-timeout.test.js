@@ -214,12 +214,17 @@ for (const environment of ['Node', 'browser']) {
           const hubkit = createHubkit(environment, fetch);
           const onError = t.mock.fn();
           const onReceive = t.mock.fn();
-          await assert.rejects(hubkit.request('/zero', {timeout, onSend, onError, onReceive}), {
-            name: 'TimeoutError'
+          await assert.rejects(hubkit.request('/zero', {
+            timeout, onSend, onError, onReceive
+          }), error => {
+            assert.equal(error.name, 'TimeoutError');
+            assert.equal(error.options.timeout, 0);
+            return true;
           });
           assert.equal(fetch.mock.callCount(), 0);
           assert.equal(onError.mock.callCount(), 1);
           assert.equal(onError.mock.calls[0].arguments[0].networkFailure, undefined);
+          assert.equal(onError.mock.calls[0].arguments[0].options.timeout, 0);
           assert.equal(onReceive.mock.callCount(), 0);
         });
     }

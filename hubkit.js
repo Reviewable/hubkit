@@ -593,7 +593,7 @@ if (typeof require !== 'undefined') {
             const timeout = await options.onSend?.(cause) ?? options.timeout;
             // Capture the credentials before sending, even if a callback later mutates options.
             // Each caller and each attempt gets its own snapshot, including shared fetches.
-            context.options = {...options};
+            context.options = {...options, timeout};
             if (timeout === 0) {
               onError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
               return;

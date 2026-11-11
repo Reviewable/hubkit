@@ -68,8 +68,10 @@ for (const environment of ['Node', 'browser']) {
             for (const options of requestOptions) options.token = 'changed-after-send';
           }
         });
-        const results = await Promise.allSettled(['first', 'second'].map(caller =>
-          hubkit.request('/user', {caller})));
+        const results = await Promise.allSettled(['first', 'second'].map((caller, index) =>
+          hubkit.request('/user', {
+            caller, timeout: 3000, onSend: async () => (index + 1) * 1000
+          })));
         assert.equal(fetches, 1);
         assert.ok(results.every(result => result.status === 'rejected'));
         const errors = results.map(result => result.reason);
@@ -79,6 +81,8 @@ for (const environment of ['Node', 'browser']) {
         assert.equal(errors[1].options.caller, 'second');
         assert.equal(errors[0].options.token, 'shared-token');
         assert.equal(errors[1].options.token, 'shared-token');
+        assert.equal(errors[0].options.timeout, 1000);
+        assert.equal(errors[1].options.timeout, 2000);
         assert.equal(Object.hasOwn(sourceError, 'options'), false);
       });
   }
@@ -124,6 +128,32 @@ for (const environment of ['Node', 'browser']) {
     assert.deepEqual(tokens, ['token initial-token', 'token retry-token']);
     assert.deepEqual(errors.map(error => error.options.token), ['initial-token', 'retry-token']);
   });
+
+  for (const override of [0, 1000, null, undefined]) {
+    test(`${environment}: records timeout override ${override} without changing the retry default`,
+      async () => {
+        let fetches = 0;
+        const errors = [];
+        const Hubkit = createHubkit(environment, async () => {
+          fetches++;
+          return unauthorized();
+        });
+        const hubkit = new Hubkit({timeout: 2000, maxTries: 2});
+        await assert.rejects(hubkit.request('/user', {
+          onSend: async cause => cause === 'initial' ? override : undefined,
+          onError: error => {
+            errors.push(error);
+            return Hubkit.RETRY;
+          }
+        }), error => {
+          assert.equal(error.options.timeout, 2000);
+          assert.equal(error.status, 401);
+          return true;
+        });
+        assert.deepEqual(errors.map(error => error.options.timeout), [override ?? 2000, 2000]);
+        assert.equal(fetches, override === 0 ? 1 : 2);
+      });
+  }
 
   for (const graph of [false, true]) {
     for (const hook of ['onRequest', 'onSend', 'onReceive', 'onError']) {
