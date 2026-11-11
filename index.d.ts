@@ -102,6 +102,8 @@ export interface Options {
     latency: number
   ): void;
   onError?(error: Error & {
+    /** Non-enumerable shallow snapshot of this caller's options before sending this attempt. */
+    readonly options: Readonly<Options>,
     status?: number,
     data?: any,
     errors?: any,

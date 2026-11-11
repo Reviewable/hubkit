@@ -193,7 +193,16 @@ if (typeof require !== 'undefined') {
     async request(path, options) {
       options = defaults({}, options);
       defaults(options, this.defaultOptions);
+      const context = {options};
+      try {
+        return await this.#request(path, context);
+      } catch (error) {
+        throw attachErrorOptions(error, context.options);
+      }
+    }
 
+    async #request(path, context) {
+      const options = context.options;
       if (options.onRequest) await options.onRequest(options);
       path = interpolatePath(path, options);
       const graph = detectApi(path) === 'graph';
@@ -318,6 +327,7 @@ if (typeof require !== 'undefined') {
         };
 
         function handleError(error, res, status = res?.status, partialData = false) {
+          error = attachErrorOptions(error, context.options);
           const headers = res && Object.fromEntries(
             [...res.headers].filter(([k]) => k !== 'authorization'));
           error.request = {method: options.method, url: path, headers};
@@ -579,7 +589,11 @@ if (typeof require !== 'undefined') {
         async function send(body, cause) {
           tries++;
           try {
+            context.options = options;
             const timeout = await options.onSend?.(cause) ?? options.timeout;
+            // Capture the credentials before sending, even if a callback later mutates options.
+            // Each caller and each attempt gets its own snapshot, including shared fetches.
+            context.options = {...options, timeout};
             if (timeout === 0) {
               onError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
               return;
@@ -664,6 +678,15 @@ if (typeof require !== 'undefined') {
     async graph(query, options) {
       options = options || {};
       const fullOptions = Object.assign({}, this.defaultOptions, options);
+      try {
+        // Return without awaiting so request errors keep their own attempt's options.
+        return this.request('POST /graphql', await this.#prepareGraph(query, options, fullOptions));
+      } catch (error) {
+        throw attachErrorOptions(error, fullOptions);
+      }
+    }
+
+    async #prepareGraph(query, options, fullOptions) {
       if (fullOptions.onRequest) await fullOptions.onRequest(fullOptions);
       query = await replaceAsync(
         query, /#(\w+)\s*\(([^)]+)\)(?:\s*\{([\s\S]*?)#\})?/g,
@@ -691,13 +714,36 @@ if (typeof require !== 'undefined') {
         postOptions.body.variables = options.variables;
         delete postOptions.variables;
       }
-      return this.request('POST /graphql', postOptions);
+      return postOptions;
     }
 
     interpolate(string, options) {
       options = options ? defaults(options, this.defaultOptions) : this.defaultOptions;
       return interpolate(string, options);
     }
+  }
+
+  function attachErrorOptions(error, options) {
+    // Preserve non-object rejection reasons rather than replacing them with a decoration error.
+    if (!error || !['object', 'function'].includes(typeof error)) return error;
+    if (!Object.isExtensible(error) ||
+        Object.getOwnPropertyDescriptor(error, 'options')?.configurable === false) {
+      const descriptors = Object.getOwnPropertyDescriptors(error);
+      delete descriptors.options;
+      if ('stack' in error) {
+        // V8's lazy stack getter needs the original Error's internal slots.
+        descriptors.stack = {value: error.stack, writable: true, configurable: true};
+      }
+      const copy = error instanceof DOMException ?
+        new DOMException(error.message, error.name) : Object.create(Object.getPrototypeOf(error));
+      Object.defineProperties(copy, descriptors);
+      error = copy;
+    }
+    // Keep credentials out of ordinary error serialization, including for callback exceptions.
+    Object.defineProperty(error, 'options', {
+      value: {...options}, enumerable: false, configurable: true
+    });
+    return error;
   }
 
   function computeRate(hits, misses) {
