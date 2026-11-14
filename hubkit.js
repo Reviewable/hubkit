@@ -156,7 +156,7 @@ if (typeof require !== 'undefined') {
           error: 'Two-factor authentication not set up'
         };
       }
-      if (/enabled OAuth App access restrictions/.test(message)) {
+      if (/OAuth App access restrictions/.test(message)) {
         return {
           code: 'oauth-app-restrictions', category: 'thirdparty',
           error: 'Third-party app restrictions in effect'
