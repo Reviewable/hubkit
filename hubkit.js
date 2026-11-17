@@ -11,6 +11,7 @@ if (typeof require !== 'undefined') {
 
   // Carries a paginated response's pager factory so `next` can be rebuilt for each caller.
   const NEXT_FACTORY = Symbol('hubkit.nextFactory');
+  const RESPONSE_JSON_PARSE_ERROR = Symbol('hubkit.responseJsonParseError');
   // Share transports within a pending cache entry, independently of caller-specific processing.
   const inFlightRequests = new WeakMap();
 
@@ -581,7 +582,8 @@ if (typeof require !== 'undefined') {
             // DOMException (e.g. TimeoutError) has a read-only 'message' property.
             Object.defineProperty(error, 'message', {value: message, writable: true});
           }
-          error.fingerprint =
+          error.fingerprint = error[RESPONSE_JSON_PARSE_ERROR] ?
+            ['Hubkit', 'response JSON parse'] :
             ['Hubkit', options.method, options.pathPattern, error.originalMessage];
           handleError(error);
         }
@@ -963,7 +965,10 @@ if (typeof require !== 'undefined') {
         return JSON.parse(rawData);
       } catch (error) {
         // Keep the HTTP status and body if an error response contains invalid JSON.
-        if (status < 400) throw error;
+        if (status < 400) {
+          error[RESPONSE_JSON_PARSE_ERROR] = true;
+          throw error;
+        }
       }
     }
     return rawData;
