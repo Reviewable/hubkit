@@ -21,6 +21,35 @@ function createHubkit(status, body, contentType = 'application/json', headers = 
   return {Hubkit: browser.self.Hubkit, requests: () => requests};
 }
 
+test('malformed JSON responses share one fingerprint across requests', async () => {
+  for (const [path, body] of [
+    ['/repos/example/project/pulls', '[{"number":1'],
+    ['/repos/example/project/git/trees/abc', '{"tree":[{"path":"incomplete']
+  ]) {
+    const {Hubkit, requests} = createHubkit(200, body);
+    await assert.rejects(new Hubkit().request(path), error => {
+      assert.equal(error.name, 'SyntaxError');
+      assert.ok(error.message.includes(path));
+      assert.ok(error.originalMessage);
+      assert.deepEqual(Array.from(error.fingerprint), ['Hubkit', 'response JSON parse']);
+      return true;
+    });
+    assert.equal(requests(), 1);
+  }
+});
+
+test('callback syntax errors keep the request-specific fingerprint', async () => {
+  const {Hubkit} = createHubkit(200, '{}');
+  await assert.rejects(new Hubkit().request('/user', {
+    onReceive() {JSON.parse('{');}
+  }), error => {
+    assert.equal(error.name, 'SyntaxError');
+    assert.deepEqual(
+      Array.from(error.fingerprint), ['Hubkit', 'GET', '/user', error.originalMessage]);
+    return true;
+  });
+});
+
 for (const [message, expectedStatus] of [
   ['An internal error occurred, please try again.', 500],
   ['an internal error occurred', 500],
