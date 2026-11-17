@@ -6,10 +6,11 @@ const process = require('node:process');
 const test = require('node:test');
 const {setImmediate} = require('node:timers');
 const vm = require('node:vm');
+const lrucache = require('lru-cache');
 
 function createHubkit(environment, fetch, globals = {}) {
   const context = {
-    self: {}, lrucache: require('lru-cache'), URL, Headers, AbortController, DOMException, Date,
+    self: {}, lrucache, URL, Headers, AbortController, DOMException, Date,
     setTimeout, clearTimeout, fetch, ...globals
   };
   if (environment === 'Node') Object.assign(context, {process, module: {exports: {}}});
@@ -23,6 +24,64 @@ function json(value, status = 200, headers = {}) {
     status, headers: {'content-type': 'application/json', ...headers}
   });
 }
+
+test('charges all successful REST pages once and retains their size on revalidation', async t => {
+  const firstPage = [{title: 'Résumé'}];
+  const lastPage = [{title: 'Final page'}];
+  const pageSize = JSON.stringify(firstPage).length + JSON.stringify(lastPage).length;
+  let lastPageAttempts = 0;
+  const fetch = t.mock.fn(async (url, config) => {
+    if (url.searchParams.has('page')) {
+      if (++lastPageAttempts === 1) return json({message: 'Service unavailable'}, 503);
+      return json(lastPage, 200, {etag: 'last', 'cache-control': 'max-age=0'});
+    }
+    if (config.headers['If-None-Match'] === 'last') {
+      return new globalThis.Response(null, {status: 304, headers: {'cache-control': 'max-age=60'}});
+    }
+    return json(firstPage, 200, {link: '<https://api.github.com/pages?page=2>; rel="next"'});
+  });
+  const hubkit = createHubkit('Node', fetch);
+  const {cache, stats} = hubkit.defaultOptions;
+  const value = await hubkit.request('/pages');
+  assert.equal(JSON.stringify(value), JSON.stringify([...firstPage, ...lastPage]));
+  assert.equal(lastPageAttempts, 2);
+  assert.equal(cache.calculatedSize, pageSize);
+  assert.equal(stats.missesSize, pageSize + 1);
+
+  assert.equal(await hubkit.request('/pages'), value);
+  assert.equal(cache.calculatedSize, pageSize);
+  assert.equal(await hubkit.request('/pages'), value);
+  assert.equal(stats.hits, 2);
+  assert.equal(stats.hitsSize, 2 * pageSize);
+  assert.equal(fetch.mock.callCount(), 4);
+});
+
+test('applies the item size limit to the combined REST result and caches manual pages separately',
+  async t => {
+    const firstPage = ['x'.repeat(92)];
+    const lastPage = ['y'.repeat(20)];
+    const headers = {'cache-control': 'max-age=60'};
+    const fetch = t.mock.fn(async url => {
+      if (url.searchParams.has('page')) return json(lastPage, 200, headers);
+      return json(firstPage, 200, {...headers, link: '<https://api.github.com/pages?page=2>; rel="next"'});
+    });
+    const cache = new lrucache.LRUCache({maxSize: 1000, sizeCalculation: item => item.size});
+    const hubkit = createHubkit('Node', fetch).scope({cache});
+    const value = await hubkit.request('/pages');
+    assert.deepEqual(Array.from(value), [...firstPage, ...lastPage]);
+    assert.equal(cache.size, 0);
+
+    const first = await hubkit.request('/pages', {allPages: false});
+    assert.deepEqual(Array.from(first), firstPage);
+    assert.equal(cache.calculatedSize, JSON.stringify(firstPage).length);
+    assert.deepEqual(Array.from(await first.next()), lastPage);
+    assert.equal(cache.size, 2);
+    assert.equal(cache.calculatedSize,
+      JSON.stringify(firstPage).length + JSON.stringify(lastPage).length);
+    const cached = await hubkit.request('/pages', {allPages: false});
+    assert.deepEqual(Array.from(await cached.next()), lastPage);
+    assert.equal(fetch.mock.callCount(), 4);
+  });
 
 for (const environment of ['Node', 'browser']) {
   for (const api of ['core', 'graph']) {

@@ -234,7 +234,7 @@ if (typeof require !== 'undefined') {
       }
 
       const requestPromise = new Promise((resolve, reject) => {
-        let result, tries = 0, shared = false;
+        let result, previousPagesSize = 0, tries = 0, shared = false;
         send(options.body, options._cause || 'initial');
 
         // Folds a page of GraphQL data into `result`, returning true if it requested the next page.
@@ -491,6 +491,10 @@ if (typeof require !== 'undefined') {
                 formatError('Hubkit', 'GitHub disregarded the \'raw\' media type')
               ), res);
             } else {
+              const pageSize = cacheable ? (
+                rawData ? rawData.length || rawData.size || rawData.byteLength :
+                res.data ? res.data.size || res.data.byteLength : 1
+              ) : 0;
               let nextUrl;
               if (res.headers.get('link')) {
                 const match = /<([^>]+?)>;\s*rel="next"/.exec(res.headers.get('link'));
@@ -520,6 +524,7 @@ if (typeof require !== 'undefined') {
                 }
                 if (nextUrl) {
                   if (options.allPages) {
+                    previousPagesSize += pageSize;
                     cachedItem = null;
                     tries = 0;
                     path = nextUrl;
@@ -551,10 +556,7 @@ if (typeof require !== 'undefined') {
                 }
               }
               if (cacheable) {
-                const size =
-                  rawData ? rawData.length || rawData.size || rawData.byteLength :
-                  res.data ? res.data.size || res.data.byteLength :
-                  1;
+                const size = previousPagesSize + pageSize;
                 if (options.stats) options.stats.record(shared, size);
                 if (options.cache.get(cacheKey) === cacheEntry && res.status === 200 &&
                     (res.headers.get('etag') || res.headers.get('cache-control')) &&
