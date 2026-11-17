@@ -524,6 +524,7 @@ if (typeof require !== 'undefined') {
                 }
                 if (nextUrl) {
                   if (options.allPages) {
+                    if (cacheable && options.stats) options.stats.record(shared, pageSize);
                     previousPagesSize += pageSize;
                     cachedItem = null;
                     tries = 0;
@@ -556,8 +557,8 @@ if (typeof require !== 'undefined') {
                 }
               }
               if (cacheable) {
+                if (options.stats) options.stats.record(shared, pageSize);
                 const size = previousPagesSize + pageSize;
-                if (options.stats) options.stats.record(shared, size);
                 if (options.cache.get(cacheKey) === cacheEntry && res.status === 200 &&
                     (res.headers.get('etag') || res.headers.get('cache-control')) &&
                     size <= options.cache.maxSize * options.maxItemSizeRatio) {

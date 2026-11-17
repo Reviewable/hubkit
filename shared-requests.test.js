@@ -56,6 +56,40 @@ test('charges all successful REST pages once and retains their size on revalidat
   assert.equal(fetch.mock.callCount(), 4);
 });
 
+test('records hits and misses for each automatic REST page', async t => {
+  const firstResponse = Promise.withResolvers();
+  const resumeSecondCaller = Promise.withResolvers();
+  const firstPage = ['shared page'];
+  const lastPage = ['last page'];
+  const firstSize = JSON.stringify(firstPage).length;
+  const lastSize = JSON.stringify(lastPage).length;
+  const fetch = t.mock.fn(async url => url.searchParams.has('page') ?
+    json(lastPage, 200, {'cache-control': 'max-age=60'}) : firstResponse.promise);
+  const hubkit = createHubkit('Node', fetch);
+  const first = hubkit.request('/pages');
+  const second = hubkit.request('/pages', {
+    onSend: cause => cause === 'page' ? resumeSecondCaller.promise : undefined
+  });
+  await new Promise(setImmediate);
+  assert.equal(fetch.mock.callCount(), 1);
+  firstResponse.resolve(json(firstPage, 200, {
+    link: '<https://api.github.com/pages?page=2>; rel="next"'
+  }));
+  const firstValue = await first;
+  resumeSecondCaller.resolve();
+  for (const value of [firstValue, await second]) {
+    assert.deepEqual(Array.from(value), [...firstPage, ...lastPage]);
+  }
+
+  const {stats, cache} = hubkit.defaultOptions;
+  assert.equal(fetch.mock.callCount(), 3);
+  assert.equal(stats.hits, 1);
+  assert.equal(stats.misses, 3);
+  assert.equal(stats.hitsSize, firstSize);
+  assert.equal(stats.missesSize, firstSize + 2 * lastSize);
+  assert.equal(cache.calculatedSize, firstSize + lastSize);
+});
+
 test('applies the item size limit to the combined REST result and caches manual pages separately',
   async t => {
     const firstPage = ['x'.repeat(92)];
