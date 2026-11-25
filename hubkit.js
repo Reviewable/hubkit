@@ -9,8 +9,6 @@ if (typeof require !== 'undefined') {
   /* global process */
   const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
-  // Carries a paginated response's pager factory so `next` can be rebuilt for each caller.
-  const NEXT_FACTORY = Symbol('hubkit.nextFactory');
   const RESPONSE_JSON_PARSE_ERROR = Symbol('hubkit.responseJsonParseError');
   // Share transports within a pending cache entry, independently of caller-specific processing.
   const inFlightRequests = new WeakMap();
@@ -224,7 +222,7 @@ if (typeof require !== 'undefined') {
           !options.fresh && Date.now() < cachedItem.expiry
         )) {
           if (options.stats) options.stats.record(true, cachedItem.size);
-          return attachFreshNext(cachedItem.value, this, options);
+          return pageForCaller(cachedItem.value, cachedItem.nextPage, this, options);
         }
         if (!cacheEntry?.pending || options.fresh) {
           cacheEntry = {pending: 0, cachedItem, size: 100};
@@ -234,7 +232,8 @@ if (typeof require !== 'undefined') {
       }
 
       const requestPromise = new Promise((resolve, reject) => {
-        let result, previousPagesSize = 0, tries = 0, shared = false;
+        let result, nextPage, previousPagesSize = 0, tries = 0, shared = false;
+        const resolvePage = () => resolve(pageForCaller(result, nextPage, this, options));
         send(options.body, options._cause || 'initial');
 
         // Folds a page of GraphQL data into `result`, returning true if it requested the next page.
@@ -309,18 +308,7 @@ if (typeof require !== 'undefined') {
                 send(options.body, 'page');
                 return true;  // Don't resolve yet, more pages to come
               }
-              const makeNext = (self, opts) => () => self.request(
-                path,
-                defaults({
-                  _cause: 'page', body: defaults({
-                    variables: defaults({
-                      after: cursor
-                    }, opts.body.variables)
-                  }, opts.body)
-                }, opts)
-              );
-              result.next = makeNext(this, options);
-              result[NEXT_FACTORY] = makeNext;
+              nextPage = {url: path, after: cursor};
             }
           } else {
             result = data;
@@ -387,7 +375,7 @@ if (typeof require !== 'undefined') {
               handleError(e, res);
               return;
             }
-            resolve(result);
+            resolvePage();
           } else {
             resolve(value);
           }
@@ -425,7 +413,7 @@ if (typeof require !== 'undefined') {
                 options.cache.set(cacheKey, entry);
               }
               if (options.stats) options.stats.record(true, cachedItem.size);
-              resolve(attachFreshNext(cachedItem.value, this, options));
+              resolve(pageForCaller(cachedItem.value, cachedItem.nextPage, this, options));
             } else if (
               !(res.status >= 200 && res.status < 300 ||
                 options.boolean && res.status === 404 && res.data &&
@@ -534,10 +522,7 @@ if (typeof require !== 'undefined') {
                     send(null, 'page');
                     return;  // Don't resolve yet, more pages to come.
                   }
-                  const makeNext = (self, opts) =>
-                    () => self.request(nextUrl, defaults({_cause: 'page', body: null}, opts));
-                  result.next = makeNext(this, options);
-                  result[NEXT_FACTORY] = makeNext;
+                  nextPage = {url: nextUrl};
                 }
               } else {
                 if (nextUrl || result) {
@@ -563,13 +548,13 @@ if (typeof require !== 'undefined') {
                     (res.headers.get('etag') || res.headers.get('cache-control')) &&
                     size <= options.cache.maxSize * options.maxItemSizeRatio) {
                   options.cache.set(cacheKey, {
-                    value: result, eTag: res.headers.get('etag'), status: res.status,
+                    value: result, nextPage, eTag: res.headers.get('etag'), status: res.status,
                     headers: res.headers, timestamp: res.timestamp, size,
                     expiry: parseExpiry(res.headers)
                   });
                 }
               }
-              resolve(result);
+              resolvePage();
             }
           } catch (e) {
             handleError(e, res);
@@ -1054,22 +1039,19 @@ if (typeof require !== 'undefined') {
     return options.cache.get(cacheKey);
   }
 
-  // Return a shared response with its `next` pager rebound to the current request, so follow-up
-  // pages run in the caller's context (auth token, task lease, etc.) rather than the possibly
-  // stale context captured when the response was first fetched.  This covers every way a response
-  // gets handed out more than once: a settled cache hit, a 304 revalidation, and a concurrent
-  // caller awaiting an in-flight request.  The value is shallow-cloned so those callers don't
-  // clobber each other's `next`.
-  function attachFreshNext(value, self, options) {
-    const makeNext = value && value[NEXT_FACTORY];
-    if (!makeNext) return value;
-    const clone = Array.isArray(value) ? value.slice() : {...value};
-    // Carry the factory onto the clone as well, since a clone can itself be served again: it's
-    // what an in-flight request resolves with, and concurrent callers awaiting that same request
-    // need to rebind off it.  (Array slicing drops symbol-keyed properties.)
-    clone[NEXT_FACTORY] = makeNext;
-    clone.next = makeNext(self, options);
-    return clone;
+  // The cache holds only the page data and continuation. Keep the pager outside the request's
+  // scope so it only closes over the continuation and the caller's context.
+  function pageForCaller(value, nextPage, hubkit, options) {
+    if (!nextPage) return value;
+    const {url, after} = nextPage;
+    const page = Array.isArray(value) ? value.slice() : {...value};
+    page.next = () => {
+      const body = after === undefined ? null : defaults({
+        variables: defaults({after}, options.body.variables)
+      }, options.body);
+      return hubkit.request(url, defaults({_cause: 'page', body}, options));
+    };
+    return page;
   }
 
   function satisfiesGheVersion(options, minVersion) {

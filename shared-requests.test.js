@@ -117,6 +117,76 @@ test('applies the item size limit to the combined REST result and caches manual 
     assert.equal(fetch.mock.callCount(), 4);
   });
 
+for (const wrapped of [false, true]) {
+  const shape = wrapped ? 'wrapped results' : 'arrays';
+  test(`manual REST ${shape} get caller-specific pagers across cache refreshes`, async t => {
+    const nextUrl = 'https://api.github.com/pages?page=2';
+    const body = id => wrapped ? {items: [{id}]} : [{id}];
+    let firstPageRequests = 0;
+    const fetch = t.mock.fn(async (url, config) => {
+      if (url.searchParams.has('page')) return json(body(2));
+      if (++firstPageRequests === 1) {
+        return json(body(1), 200, {
+          etag: 'first', 'cache-control': 'max-age=0', link: `<${nextUrl}>; rel="next"`
+        });
+      }
+      if (firstPageRequests === 2) {
+        assert.equal(config.headers['If-None-Match'], 'first');
+        return new globalThis.Response(null, {
+          status: 304, headers: {'cache-control': 'max-age=60'}
+        });
+      }
+      return json(body(3), 200, {'cache-control': 'max-age=60'});
+    });
+    const hubkit = createHubkit('Node', fetch).scope({allPages: false});
+    const {cache} = hubkit.defaultOptions;
+    const callers = ['initial', 'revalidating', 'joining', 'cached'].map(lease => {
+      const event = {lease};
+      const onSend = t.mock.fn();
+      const scoped = hubkit.scope({event, onSend});
+      const request = t.mock.method(scoped, 'request');
+      return {event, onSend, scoped, request};
+    });
+
+    const initial = await callers[0].scoped.request('/pages');
+    const [revalidated, joined] = await Promise.all([
+      callers[1].scoped.request('/pages'), callers[2].scoped.request('/pages')
+    ]);
+    const cached = await callers[3].scoped.request('/pages');
+    assert.equal(fetch.mock.callCount(), 2);
+
+    const [entry] = cache.values();
+    assert.equal(entry.value.next, undefined);
+    assert.equal(Object.getOwnPropertySymbols(entry.value).length, 0);
+    const pages = [initial, revalidated, joined, cached];
+    assert.equal(new Set([...pages, entry.value]).size, 5);
+    const cachedItems = wrapped ? entry.value.items : entry.value;
+    for (const page of pages) {
+      assert.equal(JSON.stringify(page), JSON.stringify(body(1)));
+      assert.equal((wrapped ? page.items : page)[0], cachedItems[0]);
+    }
+
+    const replacement = await hubkit.request('/pages', {fresh: true});
+    assert.equal(JSON.stringify(replacement), JSON.stringify(body(3)));
+    assert.equal(replacement.next, undefined);
+    assert.equal(await hubkit.request('/pages'), replacement);
+
+    const lastPages = await Promise.all(pages.map(page => page.next()));
+    for (const page of lastPages) {
+      assert.equal(JSON.stringify(page), JSON.stringify(body(2)));
+      assert.equal(page.next, undefined);
+    }
+    assert.equal(fetch.mock.callCount(), 4);
+    for (const [index, {event, onSend, request}] of callers.entries()) {
+      assert.equal(request.mock.callCount(), 2);
+      assert.equal(request.mock.calls[1].arguments[0], nextUrl);
+      assert.equal(request.mock.calls[1].arguments[1].event, event);
+      assert.deepEqual(onSend.mock.calls.map(call => call.arguments[0]),
+        index === 3 ? ['page'] : ['initial', 'page']);
+    }
+  });
+}
+
 for (const environment of ['Node', 'browser']) {
   for (const api of ['core', 'graph']) {
     test(`${environment}: unshared ${api} responses parse only once with onReceive`, async t => {

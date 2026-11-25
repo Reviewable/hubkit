@@ -35,6 +35,28 @@ function createHubkit(pages) {
 
 const forbidden = [{type: 'FORBIDDEN', message: 'Resource not accessible', path: ['viewer']}];
 
+test('manual GraphQL paging advances its cursor after partial data recovery', async () => {
+  const {Hubkit, cursors} = createHubkit([
+    buildPage([null], 'c1', forbidden),
+    buildPage([{number: 2}], 'c2'),
+    buildPage([null], null, forbidden)
+  ]);
+  const sends = [];
+  const first = await new Hubkit().graph(query, {
+    allPages: false,
+    onError: error => error.data,
+    onSend: cause => {sends.push(cause);}
+  });
+  assert.deepEqual([...first.viewer.issues.nodes], [null]);
+  const second = await first.next();
+  assert.equal(second.viewer.issues.nodes[0].number, 2);
+  const last = await second.next();
+  assert.deepEqual([...last.viewer.issues.nodes], [null]);
+  assert.equal(last.next, undefined);
+  assert.deepEqual(cursors, [undefined, 'c1', 'c2']);
+  assert.deepEqual(sends, ['initial', 'page', 'page']);
+});
+
 for (const [name, pages, numbers] of [
   ['a later page', [
     buildPage([{number: 1}], 'c1'),
