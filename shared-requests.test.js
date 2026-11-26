@@ -187,6 +187,36 @@ for (const wrapped of [false, true]) {
   });
 }
 
+test('manual REST paging survives a cache that keeps only the original entry fields', async t => {
+  const nextUrl = 'https://api.github.com/pages?page=2';
+  const fetch = t.mock.fn(async (url, config) => {
+    if (url.searchParams.has('page')) return json([2]);
+    if (config.headers['If-None-Match'] === 'first') {
+      return new globalThis.Response(null, {status: 304, headers: {'cache-control': 'max-age=60'}});
+    }
+    return json([1], 200, {
+      etag: 'first', 'cache-control': 'max-age=60', link: `<${nextUrl}>; rel="next"`
+    });
+  });
+  const hubkit = createHubkit('Node', fetch).scope({allPages: false});
+  const {cache} = hubkit.defaultOptions;
+
+  await hubkit.request('/pages');
+  const [[key, entry]] = cache.entries();
+  const {value, eTag, status, headers, timestamp, size, expiry} = entry;
+  cache.set(key, {value, eTag, status, headers, timestamp, size, expiry});
+
+  const cached = await hubkit.request('/pages');
+  const revalidated = await hubkit.request('/pages', {fresh: true});
+  assert.equal(fetch.mock.callCount(), 2);
+  for (const page of [cached, revalidated]) {
+    assert.deepEqual(Array.from(page), [1]);
+    const final = await page.next();
+    assert.deepEqual(Array.from(final), [2]);
+    assert.equal(final.next, undefined);
+  }
+});
+
 for (const environment of ['Node', 'browser']) {
   for (const api of ['core', 'graph']) {
     test(`${environment}: unshared ${api} responses parse only once with onReceive`, async t => {
