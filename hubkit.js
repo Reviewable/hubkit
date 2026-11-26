@@ -222,7 +222,7 @@ if (typeof require !== 'undefined') {
           !options.fresh && Date.now() < cachedItem.expiry
         )) {
           if (options.stats) options.stats.record(true, cachedItem.size);
-          return cachedPageForCaller(cachedItem, graph, this, options);
+          return pageForCaller(cachedItem.value, cachedItem.nextPage, this, options);
         }
         if (!cacheEntry?.pending || options.fresh) {
           cacheEntry = {pending: 0, cachedItem, size: 100};
@@ -413,7 +413,7 @@ if (typeof require !== 'undefined') {
                 options.cache.set(cacheKey, entry);
               }
               if (options.stats) options.stats.record(true, cachedItem.size);
-              resolve(cachedPageForCaller(cachedItem, graph, this, options));
+              resolve(pageForCaller(cachedItem.value, cachedItem.nextPage, this, options));
             } else if (
               !(res.status >= 200 && res.status < 300 ||
                 options.boolean && res.status === 404 && res.data &&
@@ -483,9 +483,13 @@ if (typeof require !== 'undefined') {
                 rawData ? rawData.length || rawData.size || rawData.byteLength :
                 res.data ? res.data.size || res.data.byteLength : 1
               ) : 0;
-              const nextUrl = parseNextPageUrl(res.headers);
-              if (nextUrl && !(options.method === 'GET' || options.method === 'HEAD')) {
-                throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
+              let nextUrl;
+              if (res.headers.get('link')) {
+                const match = /<([^>]+?)>;\s*rel="next"/.exec(res.headers.get('link'));
+                nextUrl = match && match[1];
+                if (nextUrl && !(options.method === 'GET' || options.method === 'HEAD')) {
+                  throw new Error(formatError('Hubkit', 'paginated response for non-GET method'));
+                }
               }
               if (detectApi(path) === 'graph') {
                 if (acceptGraphPage(res.data.data)) return;
@@ -1033,23 +1037,6 @@ if (typeof require !== 'undefined') {
 
   function checkCache(options, cacheKey) {
     return options.cache.get(cacheKey);
-  }
-
-  function parseNextPageUrl(headers) {
-    const link = headers?.get?.('link');
-    if (link) {
-      const match = /<([^>]+?)>;\s*rel="next"/.exec(link);
-      return match && match[1];
-    }
-  }
-
-  function cachedPageForCaller({value, nextPage, headers}, graph, hubkit, options) {
-    // Cache adapters that keep only the original fields may still have the REST Link header.
-    if (!nextPage && !graph && !options.allPages) {
-      const url = parseNextPageUrl(headers);
-      if (url) nextPage = {url};
-    }
-    return pageForCaller(value, nextPage, hubkit, options);
   }
 
   // The cache holds only the page data and continuation. Keep the pager outside the request's

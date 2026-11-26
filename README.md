@@ -264,9 +264,10 @@ in NodeJS.
 * `cache`: An instance of [LRUCache](https://github.com/isaacs/node-lru-cache).  The
 completed entries have the form
 `{value: {...}, eTag: 'abc123', status: 200, headers: {...}, timestamp: 1770853000000, size: 1763, expiry: 1770853094}`.
-For a nonfinal manual REST page, Hubkit stores `nextPage: {url: string}` with the cached response.
-Custom caches should preserve it so Hubkit can attach `next()` using the serving caller's options.
-If the field is absent, Hubkit can recover the REST continuation from the cached `Link` header.
+**Breaking change in 10.0.0.** The `value` of a cached manual REST page is the parsed response. A
+nonfinal page stores its continuation in `nextPage: {url: string}` alongside `value`. Hubkit adds
+`next()` to a shallow copy when returning the page, using the serving caller's options. Custom
+caches must preserve `nextPage` for manual pagination on cache hits and 304 responses.
 You can use the (approximate) `size` field to help your cache determine when to evict items, but note that it tends to underestimate the actual size size of the object by 3-4x.  The
 default cache is set to hold ~10MB of the measured bytes amount (so ~30-40MB of actual memory usage).
 While requests are being processed, the cache can also contain internal `{pending: number, cachedItem?: object, size: 100}` entries.  `cachedItem` retains the previous completed cache entry, when present, for conditional requests and 304 restoration.  Concurrent callers share individual fetches and raw response bodies, but run their own preparation callbacks, JSON parsing, pagination, and error/retry policies.  The initiating caller owns the transport-level `onReceive` callback.  The initiating caller reuses the transport's parsed response; joiners parse separate copies so pagination and error-handler mutations cannot affect another caller.  Pending entries are removed when all their callers finish unless replaced by a completed response; rejected promises are never cached.
