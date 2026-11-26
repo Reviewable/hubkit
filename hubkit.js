@@ -233,8 +233,6 @@ if (typeof require !== 'undefined') {
 
       const requestPromise = new Promise((resolve, reject) => {
         let result, nextPage, previousPagesSize = 0, tries = 0, shared = false;
-        const resolvePage = () => resolve(pageForCaller(result, nextPage, this, options));
-        send(options.body, options._cause || 'initial');
 
         // Folds a page of GraphQL data into `result`, returning true if it requested the next page.
         const acceptGraphPage = data => {
@@ -315,7 +313,7 @@ if (typeof require !== 'undefined') {
           }
         };
 
-        function handleError(error, res, status = res?.status, partialData = false) {
+        const handleError = (error, res, status = res?.status, partialData = false) => {
           error = attachErrorOptions(error, context.options);
           const headers = res && Object.fromEntries(
             [...res.headers].filter(([k]) => k !== 'authorization'));
@@ -375,11 +373,11 @@ if (typeof require !== 'undefined') {
               handleError(e, res);
               return;
             }
-            resolvePage();
+            resolve(pageForCaller(result, nextPage, this, options));
           } else {
             resolve(value);
           }
-        }
+        };
 
         function retry() {
           send(options.body, 'retry');
@@ -554,7 +552,7 @@ if (typeof require !== 'undefined') {
                   });
                 }
               }
-              resolvePage();
+              resolve(pageForCaller(result, nextPage, this, options));
             }
           } catch (e) {
             handleError(e, res);
@@ -652,6 +650,8 @@ if (typeof require !== 'undefined') {
             reject(error);
           }
         }
+
+        send(options.body, options._cause || 'initial');
       });
 
       if (cacheable) {
