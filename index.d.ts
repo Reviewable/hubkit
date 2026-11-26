@@ -44,6 +44,8 @@ type OnSendResult = number | null | void;
 
 interface CachedResponse {
   value: any;
+  /** Continuation of a nonfinal manual page, including a cursor for GraphQL. */
+  nextPage?: {url: string, after?: string};
   eTag?: string;
   status: number;
   headers: any;
